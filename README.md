@@ -104,8 +104,7 @@ The **360 model checkpoints** (`.pt` files, ~19 MB each for GBM, ~similar for He
 
 They are available at:
 
-> 📦 **Google Drive:** `[LINK — to be added upon publication]`
-> 📦 **Zenodo DOI:** `[DOI — to be added upon publication]`
+> 📦 **Zenodo:** https://doi.org/10.5281/zenodo.20176723
 
 Each checkpoint follows a 5-layer provenance scheme:
 1. Model weights + optimizer state
