@@ -1,6 +1,6 @@
 # ARTICLE\_SBTS — Deep Hedging of Rainbow Options via Schrödinger Bridge
 
-> **Paper:** *Multivariate Schrödinger Bridge Path Generation for Deep Hedging of Rainbow Options under Proportional Transaction Costs*
+> **Paper:** *Multivariate Schrödinger Bridge for Deep Hedging of Rainbow Options under Transaction Costs*
 > **Status:** Under review
 
 ---
@@ -34,10 +34,10 @@ yfinance 2005–2026
 ARTICLE_SBTS/
 │
 ├── notebooks/
-│   ├── article_1_data.ipynb          # Data download, generator calibration, path generation
-│   ├── article_2_gbm.ipynb           # GBM training (60 configs × 2 phases = 120 checkpoints)
-│   ├── article_3_heston_sbts.ipynb   # Heston + SBTS training (120 + 120 checkpoints)
-│   └── article_4_3period.ipynb       # OOS evaluation, statistical tests (t-test + MCS), tables, figure
+│   ├── article_data.ipynb           # Data download, generator calibration, path generation
+│   ├── article_gbm.ipynb            # GBM training (60 configs × 2 phases = 120 checkpoints)
+│   ├── article_heston_sbts.ipynb    # Heston + SBTS training (120 + 120 checkpoints)
+│   └── article_4_3period.ipynb      # OOS evaluation, statistical tests (t-test + MCS), tables, figure
 │
 ├── README.md
 ├── LICENSE
@@ -73,13 +73,13 @@ The notebooks expect a folder `MyDrive/ARTICLE_SBTS/` in your own Google Drive. 
 ### 3. Pipeline order
 
 ```
-Notebook 1 — Data & path generation         (~15 min, CPU)
-Notebook 2 — GBM training                   (~10 h on T4 GPU)
-Notebook 3 — Heston + SBTS training         (~20 h on T4 GPU)
-Notebook 4 — OOS evaluation + tests         (~5 min on T4 GPU, given checkpoints)
+article_data.ipynb          — Data & path generation         (~15 min, CPU)
+article_gbm.ipynb           — GBM training                   (~10 h on T4 GPU)
+article_heston_sbts.ipynb   — Heston + SBTS training         (~20 h on T4 GPU)
+article_4_3period.ipynb     — OOS evaluation + tests         (~5 min on T4 GPU, given checkpoints)
 ```
 
-To reproduce only the statistical analysis (skip training), download the 360 checkpoints from Zenodo and run notebook 4 directly.
+To reproduce only the statistical analysis (skip training), download the 360 checkpoints from Zenodo and run `article_4_3period.ipynb` directly.
 
 ---
 
@@ -142,17 +142,17 @@ All three generators observe **only** pre-2020 data for calibration. OOS evaluat
 | Test | Details |
 |---|---|
 | **Paired t-test** | 216 pairwise tests (3 pairs × 2 options × 3 strikes × 3 periods × 2 phases × 2 metrics), BH-FDR adjusted at α = 0.05 |
-| **Model Confidence Set** | 18 MCS computations (3 periods × 2 options × 3 strikes), Hansen–Lunde–Nason (2011), α = 0.10, stationary bootstrap B = 5,000 |
+| **Model Confidence Set** | 18 MCS computations (3 periods × 2 options × 3 strikes), Hansen–Lunde–Nason (2011), α = 0.10, seed-level bootstrap B = 5,000 |
 | **Scoreboard** | Win/Tie/Loss across 6 cells per period × pair |
 
 ---
 
 ## Key Results
 
-- **Representative regime (Recent 2023–2025):** SBTS is the **singleton MCS** at all 6 (option, strike) cells; paired t-tests reject equality vs both baselines at all 6 cells.
-- **COVID 2019–2020 stress regime:** Ranking **reverses** — SBTS exceeds parametric baselines by **60–147%** in hedging-error standard deviation. The MCS at α = 0.10 retains all three generators in 5/6 cells (elevated cross-seed variance under stress); paired t-tests still detect a SBTS deficit in 5/6 cells at BH-adjusted 5%.
+- **Representative regime (Recent 2023–2025):** SBTS is the **singleton MCS** at all 6 (option, strike) cells; paired t-tests reject equality vs both baselines at all 6 cells. SBTS reduces hedging-error standard deviation by **13–42%** relative to GBM and **8–39%** relative to Heston.
+- **COVID 2019–2020 stress regime:** Ranking **reverses** — SBTS hedging-error standard deviation exceeds the parametric baselines by an average of **≈101%** (range 60–156% across cells). The MCS at α = 0.10 retains all three generators in 5/6 cells (elevated cross-seed variance under stress); paired t-tests still detect an SBTS deficit in 5/6 cells at BH-adjusted 5%.
 - **Aggregated:** SBTS belongs to MCS in 15/18 cells, GBM in 9/18, Heston in 9/18.
-- **Mechanism:** SBTS failure under stress is traced to the absence of a jump component in diffusion-only bridge generators.
+- **Mechanism:** SBTS underperformance under stress is interpreted as a **bias–variance trade-off under distribution shift** combined with the **support constraint of the non-parametric bridge construction** (the calibration-window kernel support collapses sharply, from 313 to 7 effective neighbours), which limits extrapolation beyond the historical calibration window. This is *not* a positive endorsement of the parametric baselines as stress models — GBM and Heston also degrade by several-fold relative to the representative regime.
 
 ---
 
@@ -182,12 +182,12 @@ One training run (SBTS, asian\_worst\_of\_put, $\kappa = 0.95$, seed 3) diverged
 ## Citation
 
 ```bibtex
-@article{SBTS_deephedging_2025,
-  title   = {Multivariate Schrödinger Bridge Path Generation for Deep Hedging
-             of Rainbow Options under Proportional Transaction Costs},
-  author  = {[AUTHORS]},
+@article{VuNguyen_SBTS_deephedging_2026,
+  title   = {Multivariate Schr\"odinger Bridge for Deep Hedging
+             of Rainbow Options under Transaction Costs},
+  author  = {Vu, Quoc Khanh and Nguyen, Thai},
   journal = {[JOURNAL — under review]},
-  year    = {2025}
+  year    = {2026}
 }
 ```
 
