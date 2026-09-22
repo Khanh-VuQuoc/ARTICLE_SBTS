@@ -1,20 +1,37 @@
 # Locked dependency set for SBTS_CANONICAL_A100.ipynb (schema sbts-canonical-1.0)
 #
-# The notebook installs these exact versions on Colab (Cell 1,
-# DEPENDENCY_POLICY = "install_locked") and records any deviation in
-# environment/environment.json and in the run manifest. Reproducibility is
-# claimed only from the frozen data snapshot together with this environment,
-# within the declared numerical tolerances — never bit-for-bit across
-# different GPUs or software stacks.
+# Two tiers, handled differently by Cell 1 of the notebook:
+#
+#   REQUIRED  arch, yfinance — the pipeline cannot run without them and the
+#             Colab image may not ship them. Cell 1 installs them (pinned
+#             version first, unpinned as a fallback) and FAILS LOUDLY if they
+#             are still not importable. `arch` is mandatory: without it the
+#             canonical Model Confidence Set cannot be computed and Cell 24
+#             stops rather than emitting a non-canonical result.
+#
+#   RUNTIME   numpy, pandas, scipy, torch, matplotlib — already provided by the
+#             Colab image and built against its CUDA stack. Cell 1 only
+#             verifies them and records any deviation in
+#             environment/environment.json and in the run manifest; it does not
+#             force-downgrade them, because that breaks the CUDA build and
+#             needs a runtime restart. Set DEPENDENCY_POLICY = "install_locked"
+#             in Cell 1 to force the exact versions anyway.
+#
+# Reproducibility is claimed from the frozen data snapshot together with the
+# environment actually recorded for the run, within the declared numerical
+# tolerances — never bit-for-bit across different GPUs or software stacks.
 #
 # To re-lock: run the notebook once, copy the versions from
-# environment/pip_freeze.txt, and update both this file and
-# REQUIREMENTS_LOCK in Cell 1.
+# environment/pip_freeze.txt, and update this file together with
+# REQUIRED_PACKAGES / RUNTIME_PACKAGES in Cell 1.
 
+# --- required ---
+arch==8.0.0
+yfinance==1.7.0
+
+# --- runtime (verified, not forced) ---
 numpy==2.4.6
-pandas==2.3.4
-scipy==1.16.3
+pandas==3.0.6
+scipy==1.17.1
 torch==2.14.0
 matplotlib==3.11.2
-yfinance==1.7.0
-arch==8.0.0

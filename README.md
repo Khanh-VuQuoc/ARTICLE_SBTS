@@ -94,6 +94,12 @@ RUN_MODE = "SMOKE"   # validate the pipeline and size the machine
 # RUN_MODE = "DIAGNOSTICS"   # support diagnostics only
 ```
 
+Cell 1 installs `arch` and `yfinance` (required — it stops with the pip output
+if either is unavailable) and only *verifies* numpy/pandas/scipy/torch/matplotlib
+against the lock, recording any deviation, because force-downgrading the Colab
+CUDA build would need a runtime restart. Set `DEPENDENCY_POLICY = "install_locked"`
+in Cell 1 to force the exact pins anyway.
+
 Run `SMOKE` first: it executes every stage on a reduced grid, runs the unit and
 integration tests (Gate 1) and prints a runtime estimate measured on the machine
 you are actually using. Only then switch to `FULL`. Outputs land in

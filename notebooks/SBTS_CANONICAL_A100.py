@@ -180,80 +180,192 @@ print("\nNo runtime estimate is shown until the Cell-18 smoke benchmark has "
 
 # ---- notebook cell 3 --------------------------------------------------
 # ═════════════════════════════════════════════════════════════════════════════
-#  CELL 1 — LOCKED DEPENDENCY INSTALLATION
+#  CELL 1 — DEPENDENCY SETUP
 # ═════════════════════════════════════════════════════════════════════════════
-#  The published run must use the locked versions below. The policy knob keeps
-#  the notebook usable in environments where installation is not possible, but
-#  any deviation is recorded in environment/environment.json and surfaces as a
-#  warning in the final manifest.
+#  Two tiers, because they need opposite treatment on Colab:
 #
-#    install_locked : pip-install the exact pinned versions (default on Colab)
-#    verify_only    : do not install; compare what is importable to the lock
-#    skip           : neither install nor compare (development only)
+#   REQUIRED_PACKAGES   packages the pipeline cannot run without and that the
+#                       runtime may not ship (arch for the canonical MCS,
+#                       yfinance for the data snapshot). These are INSTALLED
+#                       if they are not importable: the pinned version first,
+#                       then unpinned if that pin is unavailable. If one of
+#                       them is still missing afterwards the cell fails loudly
+#                       instead of letting a later cell discover it.
+#
+#   RUNTIME_PACKAGES    numpy / pandas / scipy / torch / matplotlib, which the
+#                       Colab image already provides, built against its CUDA
+#                       stack. Force-downgrading them to a pin breaks that
+#                       build and needs a runtime restart, so by default they
+#                       are only VERIFIED and any deviation is recorded in
+#                       environment.json and in the manifest. Set
+#                       DEPENDENCY_POLICY = "install_locked" to force the exact
+#                       versions anyway (expect to restart the runtime).
+#
+#  Whatever happens, the environment that actually ran is hashed and recorded:
+#  reproducibility is claimed from the frozen snapshot plus the recorded
+#  environment, within declared numerical tolerances.
 # ═════════════════════════════════════════════════════════════════════════════
 
 import importlib.util, subprocess, sys
+from typing import Any, Dict, Tuple
 
-REQUIREMENTS_LOCK = {
-    "numpy":       "2.4.6",
-    "pandas":      "2.3.4",
-    "scipy":       "1.16.3",
-    "torch":       "2.14.0",
-    "matplotlib":  "3.11.2",
-    "yfinance":    "1.7.0",
-    "arch":        "8.0.0",
+# pip name -> (locked version, import name)
+REQUIRED_PACKAGES = {
+    "arch":     ("8.0.0", "arch"),
+    "yfinance": ("1.7.0", "yfinance"),
 }
+RUNTIME_PACKAGES = {
+    "numpy":      ("2.4.6",  "numpy"),
+    "pandas":     ("3.0.6",  "pandas"),
+    "scipy":      ("1.17.1", "scipy"),
+    "torch":      ("2.14.0", "torch"),
+    "matplotlib": ("3.11.2", "matplotlib"),
+}
+REQUIREMENTS_LOCK = {k: v[0] for k, v in
+                     {**RUNTIME_PACKAGES, **REQUIRED_PACKAGES}.items()}
 
-IN_COLAB = "google.colab" in sys.modules or importlib.util.find_spec("google.colab") is not None
-DEPENDENCY_POLICY = "install_locked" if IN_COLAB else "verify_only"
+IN_COLAB = ("google.colab" in sys.modules
+            or importlib.util.find_spec("google.colab") is not None)
+
+#   "auto"          install what is missing, verify the rest      (default)
+#   "install_locked" force every pin (expect a runtime restart)
+#   "verify_only"   never install, only compare
+#   "skip"          neither install nor compare (development only)
+DEPENDENCY_POLICY = "auto"
 
 
 def _installed_version(pkg: str):
     try:
         from importlib.metadata import version
         return version(pkg)
-    except Exception:
+    except Exception:                                        # noqa: BLE001
         return None
 
 
-def install_locked_requirements(policy: str = DEPENDENCY_POLICY):
-    """Install/verify the locked dependency set. Returns a report dict."""
+def _importable(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except Exception:                                        # noqa: BLE001
+        return False
+
+
+def _pip(*args) -> Tuple[bool, str]:
+    cmd = [sys.executable, "-m", "pip", "install", "-q", *args]
+    try:
+        subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+        return True, ""
+    except subprocess.CalledProcessError as exc:
+        return False, exc.output.decode(errors="replace")[-2000:]
+    except Exception as exc:                                 # noqa: BLE001
+        return False, repr(exc)
+
+
+def ensure_package(pip_name: str, module_name: str = None,
+                   version: str = None) -> Dict[str, Any]:
+    """Make `module_name` importable, preferring the locked version.
+
+    Returns a record of what was done. Also usable later in the session, e.g.
+    to recover from a missing `arch` without re-running this whole cell.
+    """
+    module_name = module_name or pip_name
+    rec = {"package": pip_name, "module": module_name, "locked": version,
+           "action": "already_present", "installed_version": None,
+           "importable": _importable(module_name), "error": None}
+    if rec["importable"] and (version is None
+                              or _installed_version(pip_name) == version):
+        rec["installed_version"] = _installed_version(pip_name)
+        return rec
+
+    if version:
+        ok, err = _pip(f"{pip_name}=={version}")
+        if ok:
+            rec["action"] = "installed_pinned"
+        else:
+            ok, err = _pip(pip_name)
+            rec["action"] = "installed_unpinned" if ok else "install_failed"
+            rec["error"] = None if ok else err
+    else:
+        ok, err = _pip(pip_name)
+        rec["action"] = "installed_unpinned" if ok else "install_failed"
+        rec["error"] = None if ok else err
+
+    importlib.invalidate_caches()
+    rec["importable"] = _importable(module_name)
+    rec["installed_version"] = _installed_version(pip_name)
+    return rec
+
+
+def setup_dependencies(policy: str = None) -> Dict[str, Any]:
+    policy = policy or DEPENDENCY_POLICY
     report = {"policy": policy, "lock": dict(REQUIREMENTS_LOCK),
-              "installed": {}, "mismatches": {}, "install_ok": None}
+              "actions": [], "installed": {}, "mismatches": {},
+              "missing_required": [], "restart_required": False}
+    if policy == "skip":
+        return report
+
+    if policy in ("auto", "install_locked"):
+        for pip_name, (ver, mod) in REQUIRED_PACKAGES.items():
+            rec = ensure_package(pip_name, mod, ver)
+            report["actions"].append(rec)
+            if not rec["importable"]:
+                report["missing_required"].append(pip_name)
 
     if policy == "install_locked":
-        spec = [f"{p}=={v}" for p, v in REQUIREMENTS_LOCK.items()]
-        cmd = [sys.executable, "-m", "pip", "install", "-q", *spec]
-        print("Installing locked requirements:\n  " + "\n  ".join(spec))
-        try:
-            subprocess.check_call(cmd)
-            report["install_ok"] = True
-        except Exception as exc:                       # noqa: BLE001
-            report["install_ok"] = False
-            report["install_error"] = repr(exc)
-            print(f"  [WARN] locked install failed ({exc!r}); "
-                  f"falling back to verify_only")
-            policy = report["policy"] = "verify_only"
+        for pip_name, (ver, mod) in RUNTIME_PACKAGES.items():
+            before = _installed_version(pip_name)
+            if before == ver:
+                continue
+            rec = ensure_package(pip_name, mod, ver)
+            report["actions"].append(rec)
+            # A package already imported into this kernel cannot be swapped in
+            # place; Colab needs a restart for the new version to take effect.
+            if mod in sys.modules and _installed_version(pip_name) != before:
+                report["restart_required"] = True
 
-    if policy in ("install_locked", "verify_only"):
-        for pkg, locked in REQUIREMENTS_LOCK.items():
-            got = _installed_version(pkg)
-            report["installed"][pkg] = got
-            if got is None or got != locked:
-                report["mismatches"][pkg] = {"locked": locked, "found": got}
+    for pip_name, (ver, mod) in {**RUNTIME_PACKAGES, **REQUIRED_PACKAGES}.items():
+        got = _installed_version(pip_name)
+        report["installed"][pip_name] = got
+        if got != ver:
+            report["mismatches"][pip_name] = {"locked": ver, "found": got}
 
-    if report["mismatches"]:
-        print("\n  [WARN] dependency lock deviations "
-              "(recorded in the manifest, reproducibility is only claimed "
-              "within the locked environment):")
-        for pkg, info in sorted(report["mismatches"].items()):
-            print(f"    {pkg:<12s} locked={info['locked']:<10s} found={info['found']}")
-    else:
-        print("\n  Dependency lock satisfied." if policy != "skip" else "")
     return report
 
 
-DEPENDENCY_REPORT = install_locked_requirements()
+DEPENDENCY_REPORT = setup_dependencies()
+
+for _rec in DEPENDENCY_REPORT["actions"]:
+    if _rec["action"] != "already_present":
+        print(f"  {_rec['package']:<12s} {_rec['action']} "
+              f"-> {_rec['installed_version']}")
+
+if DEPENDENCY_REPORT["missing_required"]:
+    print("\n  Required packages could not be installed: "
+          f"{DEPENDENCY_REPORT['missing_required']}")
+    for _rec in DEPENDENCY_REPORT["actions"]:
+        if _rec["error"]:
+            print(f"\n  --- pip output for {_rec['package']} ---\n{_rec['error']}")
+    raise RuntimeError(
+        f"Missing required packages: {DEPENDENCY_REPORT['missing_required']}. "
+        f"'arch' is needed for the canonical Model Confidence Set and "
+        f"'yfinance' for the data snapshot. Install them manually "
+        f"(e.g. !pip install arch yfinance) and re-run this cell.")
+
+if DEPENDENCY_REPORT["restart_required"]:
+    print("\n  A runtime package was replaced after it had already been "
+          "imported.\n  RESTART THE RUNTIME and run the notebook again from "
+          "Cell 0.")
+
+if DEPENDENCY_REPORT["mismatches"]:
+    print("\n  Version deviations from the lock (recorded in the manifest; "
+          "reproducibility\n  is claimed only within the recorded "
+          "environment):")
+    for _pkg, _info in sorted(DEPENDENCY_REPORT["mismatches"].items()):
+        _tier = "required" if _pkg in REQUIRED_PACKAGES else "runtime"
+        print(f"    {_pkg:<12s} [{_tier}] locked={_info['locked']:<10s} "
+              f"found={_info['found']}")
+else:
+    print("\n  Dependency lock satisfied exactly.")
+
 print(f"\n  IN_COLAB={IN_COLAB}  policy={DEPENDENCY_REPORT['policy']}")
 
 # ---- notebook cell 4 --------------------------------------------------
@@ -267,6 +379,7 @@ print(f"\n  IN_COLAB={IN_COLAB}  policy={DEPENDENCY_REPORT['policy']}")
 # ═════════════════════════════════════════════════════════════════════════════
 
 import os, sys, gc, io, json, math, time, random, hashlib, platform, shutil
+import importlib
 import datetime as _dt
 import subprocess, warnings, logging, tempfile, itertools, dataclasses
 from dataclasses import dataclass, field, asdict
@@ -284,14 +397,32 @@ from scipy import stats as sp_stats
 warnings.filterwarnings("ignore")
 
 # ── Optional: canonical MCS implementation ───────────────────────────────────
+def _import_arch():
+    from arch.bootstrap import MCS as _MCS
+    import arch as _a
+    return _MCS, _a.__version__
+
+
 try:
-    from arch.bootstrap import MCS as ARCH_MCS
-    import arch as _arch
-    ARCH_AVAILABLE, ARCH_VERSION = True, _arch.__version__
+    ARCH_MCS, ARCH_VERSION = _import_arch()
+    ARCH_AVAILABLE = True
 except Exception as _exc:                                    # noqa: BLE001
-    ARCH_MCS, ARCH_AVAILABLE, ARCH_VERSION = None, False, None
-    print(f"  [WARN] arch is unavailable ({_exc!r}); the canonical MCS engine "
-          f"cannot run and any MCS output will be flagged non-canonical.")
+    # Cell 1 installs arch, but a kernel that started before it ran (or a
+    # cell executed out of order) can still land here. Try once more rather
+    # than failing 20 cells later in the MCS.
+    print(f"  arch is not importable ({_exc!r}); installing it now...")
+    try:
+        _rec = ensure_package("arch", "arch", REQUIRED_PACKAGES["arch"][0])
+        importlib.invalidate_caches()
+        ARCH_MCS, ARCH_VERSION = _import_arch()
+        ARCH_AVAILABLE = True
+        print(f"  arch {ARCH_VERSION} installed and imported.")
+    except Exception as _exc2:                               # noqa: BLE001
+        ARCH_MCS, ARCH_AVAILABLE, ARCH_VERSION = None, False, None
+        print(f"  [WARN] arch is still unavailable ({_exc2!r}). The canonical "
+              f"MCS engine cannot run: Cell 24 will stop rather than emit a "
+              f"non-canonical Model Confidence Set. Install it manually "
+              f"(!pip install arch) and re-run from Cell 1.")
 
 # ── Optional: Yahoo Finance (only needed to create a new data snapshot) ──────
 try:
