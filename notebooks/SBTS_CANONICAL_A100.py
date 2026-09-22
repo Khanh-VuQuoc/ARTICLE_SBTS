@@ -2623,6 +2623,8 @@ def select_bandwidth_and_k(X_ref_t, cfg: ExperimentConfig) -> Dict[str, Any]:
         "argmin_h": float(argmin["h"]), "argmin_K": int(argmin["K"]),
         "h_star": float(chosen["h"]), "k_star": int(chosen["K"]),
         "tie_break_applied": bool(chosen["h"] != argmin["h"] or chosen["K"] != argmin["K"]),
+        "h_at_grid_boundary": bool(float(chosen["h"]) in (min(cfg.h_grid), max(cfg.h_grid))),
+        "k_at_grid_boundary": bool(int(chosen["K"]) in (min(k_grid), max(k_grid))),
         "n_within_tolerance": int(len(valid[valid["objective"] <= best_obj * (1.0 + tol)])),
         "grid_seconds": grid_seconds,
         "selected_utc": utc_now(),
@@ -2678,6 +2680,20 @@ print(f"  argmin              : h = {SELECTION_META['argmin_h']:.4f}  "
       f"{SELECTION_META['tie_break_applied']})")
 print(f"  engine              : {SELECTION_META['engine']}  "
       f"(publishable: {SELECTION_META['publishable']})")
+if SELECTION_META.get("k_at_grid_boundary") or SELECTION_META.get("h_at_grid_boundary"):
+    _edge = []
+    if SELECTION_META.get("h_at_grid_boundary"):
+        _edge.append(f"h*={H_STAR:g} at the edge of {list(CFG.h_grid)}")
+    if SELECTION_META.get("k_at_grid_boundary"):
+        _edge.append(f"K*={K_STAR} at the edge of {list(CFG.k_grid)}")
+    print(f"\n  NOTE: the selected value sits on the boundary of the locked "
+          f"grid\n        ({'; '.join(_edge)}). The optimum may lie outside "
+          f"the grid.\n        The grid is locked for this run, so this is "
+          f"disclosed rather than\n        silently widened; say so when the "
+          f"selection is reported.")
+    add_warning("selected (h, K) sits on the boundary of the locked grid",
+                {"h_star": H_STAR, "k_star": K_STAR,
+                 "h_grid": list(CFG.h_grid), "k_grid": list(CFG.k_grid)})
 if not SELECTION_META["publishable"]:
     add_warning("(h, K) selected with the non-publishable one_step_smoke engine",
                 {"h_star": H_STAR, "k_star": K_STAR})
@@ -5475,8 +5491,18 @@ def _bootstrap_ratio_ci(calm: np.ndarray, stress: np.ndarray, reps: int,
     return (float(np.nanpercentile(ratio, 2.5)), float(np.nanpercentile(ratio, 97.5)))
 
 
+# The diagnostics must cover the Markov order the generator ACTUALLY uses, not
+# just the baseline ladder in the config. K* is resolved by the Cell-11
+# selection, so it is added here at runtime rather than being written into the
+# config: config_hash stays stable and artifacts from this run remain readable.
+DIAG_K_VALUES = tuple(sorted(set(int(k) for k in CFG.diag_k_values) | {int(K_STAR)}))
+if int(K_STAR) not in tuple(CFG.diag_k_values):
+    print(f"  operational K* = {K_STAR} is not in the baseline ladder "
+          f"{list(CFG.diag_k_values)}; adding it so the support claim covers "
+          f"the Markov order the SBTS paths were generated with.\n")
+
 _diag_frames = []
-for _k in CFG.diag_k_values:
+for _k in DIAG_K_VALUES:
     for _kind in ("calm", "stress"):
         _df = support_diagnostics(_kind, int(_k), H_STAR, CFG)
         if len(_df):
@@ -5542,8 +5568,11 @@ for _name, _df in (("support_queries", SUPPORT_QUERIES),
 
 atomic_write_json(PATHS["diagnostics"] / "support_metadata.json", {
     "schema_version": CFG.schema_version, "config_hash": CONFIG_HASH,
-    "h_star": H_STAR, "k_values": list(CFG.diag_k_values),
-    "operational_k": K_STAR,
+    "h_star": H_STAR,
+    "k_values_baseline": list(CFG.diag_k_values),
+    "k_values_evaluated": list(DIAG_K_VALUES),
+    "operational_k": int(K_STAR),
+    "operational_k_covered": bool(int(K_STAR) in DIAG_K_VALUES),
     "step_index": int(CFG.diag_step_index),
     "calm_source": CFG.baseline_regime,
     "stress_window": [CFG.covid_crash_start, CFG.covid_crash_end],
@@ -5563,7 +5592,8 @@ atomic_write_json(PATHS["diagnostics"] / "support_metadata.json", {
 })
 
 print("Support-contraction diagnostics "
-      f"(h*={H_STAR:.4f}, step index {CFG.diag_step_index}, M={M_REF})\n")
+      f"(h*={H_STAR:.4f}, K evaluated {list(DIAG_K_VALUES)}, operational K*="
+      f"{K_STAR}, step index {CFG.diag_step_index}, M={M_REF})\n")
 if len(SUPPORT_SUMMARY):
     print(SUPPORT_SUMMARY.round(4).to_string(index=False))
 if len(SUPPORT_CONTRACTION):
