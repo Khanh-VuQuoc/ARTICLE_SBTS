@@ -1478,7 +1478,13 @@ def _synthetic_prices(cfg: ExperimentConfig) -> Tuple["pd.DataFrame", Dict[str, 
 def _clean_prices(prices: "pd.DataFrame", cfg: ExperimentConfig):
     """Common calendar, forward fill, drop leading/remaining gaps."""
     prices = prices.sort_index()
-    prices.index = pd.to_datetime(prices.index).tz_localize(None)
+    # yfinance returns a tz-aware index for some tickers/versions and a naive
+    # one for others; only strip the zone when there is one to strip, since
+    # older pandas raises on tz_localize(None) over an already-naive index.
+    _idx = pd.to_datetime(prices.index)
+    if getattr(_idx, "tz", None) is not None:
+        _idx = _idx.tz_localize(None)
+    prices.index = _idx
     n_rows_raw = int(len(prices))
     n_missing_before = int(prices.isna().sum().sum())
     clean = prices.ffill().dropna(how="any")
