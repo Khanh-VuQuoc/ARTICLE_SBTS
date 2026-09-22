@@ -1,0 +1,20 @@
+# Locked dependency set for SBTS_CANONICAL_A100.ipynb (schema sbts-canonical-1.0)
+#
+# The notebook installs these exact versions on Colab (Cell 1,
+# DEPENDENCY_POLICY = "install_locked") and records any deviation in
+# environment/environment.json and in the run manifest. Reproducibility is
+# claimed only from the frozen data snapshot together with this environment,
+# within the declared numerical tolerances — never bit-for-bit across
+# different GPUs or software stacks.
+#
+# To re-lock: run the notebook once, copy the versions from
+# environment/pip_freeze.txt, and update both this file and
+# REQUIREMENTS_LOCK in Cell 1.
+
+numpy==2.4.6
+pandas==2.3.4
+scipy==1.16.3
+torch==2.14.0
+matplotlib==3.11.2
+yfinance==1.7.0
+arch==8.0.0

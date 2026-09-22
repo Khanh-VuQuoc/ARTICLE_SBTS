@@ -34,18 +34,78 @@ yfinance 2005–2026
 ARTICLE_SBTS/
 │
 ├── notebooks/
-│   ├── article_data.ipynb           # Data download, generator calibration, path generation
-│   ├── article_gbm.ipynb            # GBM training (60 configs × 2 phases = 120 checkpoints)
-│   ├── article_heston_sbts.ipynb    # Heston + SBTS training (120 + 120 checkpoints)
-│   └── article_4_3period.ipynb      # OOS evaluation, statistical tests (t-test + MCS), tables, figure
+│   ├── SBTS_CANONICAL_A100.ipynb    # ★ canonical pipeline — data → training → tests → tables
+│   ├── SBTS_CANONICAL_A100.py       #   generated audit export of the notebook
+│   ├── article_data.ipynb           # legacy: data download, calibration, path generation
+│   ├── article_gbm.ipynb            # legacy: GBM training
+│   ├── article_heston_sbts.ipynb    # legacy: Heston + SBTS training
+│   └── article_4_3period.ipynb      # legacy: OOS evaluation, tests, tables, figure
 │
+├── tools/
+│   └── export_notebook_py.py        # regenerates the .py audit snapshot
+│
+├── THESIS_RESULT_MAPPING.md         # thesis object → artifact index
+├── requirements-canonical.txt       # locked environment for the canonical run
 ├── README.md
 ├── LICENSE
 ├── requirements.txt
 └── .gitignore
 ```
 
-Auto-generated outputs (not tracked in git): `article_results_3p_covid_ext/` (CSV results, LaTeX tables, figures), `checkpoints_article/` (360 `.pt` files — see *Checkpoints* below).
+Auto-generated outputs (not tracked in git): the canonical run directory
+`ARTICLE_SBTS/canonical_runs/<run_id>/` on Drive, and, for the legacy pipeline,
+`article_results_3p_covid_ext/` and `checkpoints_article/` (360 `.pt` files — see *Checkpoints* below).
+
+---
+
+## The canonical notebook
+
+`notebooks/SBTS_CANONICAL_A100.ipynb` is the **single execution source** for the
+paper. It runs from a clean Colab A100 kernel and carries the whole pipeline:
+frozen data snapshot → generator calibration → path generation → deep-hedging
+training → uniform evaluation → statistical tests → support diagnostics →
+tables/figures → signed manifest. The legacy four-notebook pipeline is kept for
+comparison; its outputs are **not** treated as final evidence.
+
+What the canonical notebook fixes relative to the legacy pipeline:
+
+| Legacy issue | Canonical behaviour |
+|---|---|
+| `seed_all` missing in the GBM session | defined in the environment bootstrap; a unit test covers it |
+| Seed 3 replaced by seed 10 under the old label | seed replacement is impossible — a failed run is recorded `status="failed"` and the tests report the real common-seed `n` |
+| Ad-hoc MCS called Hansen–Lunde–Nason | `arch.bootstrap.MCS` at a locked version, with four synthetic unit tests |
+| COVID window described as strictly out of sample | locked two-tier disclosure: 2019 overlaps the calibration window, 2020+ is out of sample |
+| Regimes reported by start date only | per-regime start/end ranges, crash share and data cutoff are stored and printed |
+| `M // batch_size` dropped 3,712 of 16,000 paths per epoch | `range(0, M, batch_size)`; every epoch asserts it consumed all `M` samples |
+| Best epoch restored weights only | the best bundle restores model, optimizer, scheduler and the CVaR `ν` |
+| Phase-2 `ν` initialised at 0 | `ν` starts at the empirical VaR₀.₉₅ of the Phase-1 validation residuals |
+| `grad_norm_post_clip` logged the pre-clip norm | the post-clip norm is measured after clipping, with the invariant asserted |
+| Xavier applied to the output layer only | every `Linear` layer initialised, verified by a unit test |
+| Bandwidth selected on a random split of overlapping windows | chronological split with a purge/embargo of one horizon, plus the full held-out objective (`paper_full`) |
+| Support counts derived from clamped weights | exact boolean compact-support masks; NNZ/ESS/entropy/concentration regenerated from code |
+| Artifacts mixed across runs | every cache checks `schema_version` + `config_hash` + data hashes; mismatches are quarantined, not merged |
+
+### Running it
+
+```python
+RUN_MODE = "SMOKE"   # validate the pipeline and size the machine
+# RUN_MODE = "FULL"          # the canonical 180-configuration experiment
+# RUN_MODE = "ANALYSIS_ONLY" # reuse existing checkpoints, no training
+# RUN_MODE = "DIAGNOSTICS"   # support diagnostics only
+```
+
+Run `SMOKE` first: it executes every stage on a reduced grid, runs the unit and
+integration tests (Gate 1) and prints a runtime estimate measured on the machine
+you are actually using. Only then switch to `FULL`. Outputs land in
+`MyDrive/ARTICLE_SBTS/canonical_runs/<run_id>/` with `config/`, `environment/`,
+`data/`, `generators/`, `checkpoints/`, `evaluations/`, `statistics/`,
+`diagnostics/`, `tables/`, `figures/`, `logs/` and `manifest.json`.
+
+A run is only quotable in the thesis when its manifest reports
+`publishable: true` — that requires `RUN_MODE="FULL"`, the real hashed Yahoo
+snapshot, the `paper_full` selection engine, no recorded failures and every
+audit check passing. See `THESIS_RESULT_MAPPING.md` for the object-to-artifact
+index.
 
 ---
 
@@ -72,6 +132,13 @@ The notebooks expect a folder `MyDrive/ARTICLE_SBTS/` in your own Google Drive. 
 
 ### 3. Pipeline order
 
+**Canonical (recommended):** open `notebooks/SBTS_CANONICAL_A100.ipynb` on an
+A100 runtime, `pip install -r requirements-canonical.txt` (the notebook does
+this itself in Cell 1), run `RUN_MODE="SMOKE"` end to end, then `RUN_MODE="FULL"`.
+No runtime figure is quoted here on purpose — Cell 18 measures it on your machine.
+
+**Legacy (for comparison only):**
+
 ```
 article_data.ipynb          — Data & path generation         (~15 min, CPU)
 article_gbm.ipynb           — GBM training                   (~10 h on T4 GPU)
@@ -79,7 +146,7 @@ article_heston_sbts.ipynb   — Heston + SBTS training         (~20 h on T4 GPU)
 article_4_3period.ipynb     — OOS evaluation + tests         (~5 min on T4 GPU, given checkpoints)
 ```
 
-To reproduce only the statistical analysis (skip training), download the 360 checkpoints from Zenodo and run `article_4_3period.ipynb` directly.
+To reproduce only the legacy statistical analysis (skip training), download the 360 checkpoints from Zenodo and run `article_4_3period.ipynb` directly.
 
 ---
 
@@ -149,6 +216,15 @@ All three generators observe **only** pre-2020 data for calibration. OOS evaluat
 
 ## Key Results
 
+> **Status:** the figures in this section come from the legacy pipeline. They are
+> being regenerated by `SBTS_CANONICAL_A100.ipynb` and must not be quoted as
+> locked thesis results until a `FULL` run reports `publishable: true`. The
+> claims flagged **pending canonical rerun** in `THESIS_RESULT_MAPPING.md` —
+> the selected bandwidth and Markov order, the MCS membership counts, and the
+> `313 → 7` / `45×` support-contraction numbers — are the ones most likely to
+> change, because the procedures that produced them were replaced.
+
+
 - **Representative regime (Recent 2023–2025):** SBTS is the **singleton MCS** at all 6 (option, strike) cells; paired t-tests reject equality vs both baselines at all 6 cells. SBTS reduces hedging-error standard deviation by **13–42%** relative to GBM and **8–39%** relative to Heston.
 - **COVID 2019–2020 stress regime:** Ranking **reverses** — SBTS hedging-error standard deviation exceeds the parametric baselines by an average of **≈101%** (range 60–156% across cells). The MCS at α = 0.10 retains all three generators in 5/6 cells (elevated cross-seed variance under stress); paired t-tests still detect an SBTS deficit in 5/6 cells at BH-adjusted 5%.
 - **Aggregated:** SBTS belongs to MCS in 15/18 cells, GBM in 9/18, Heston in 9/18.
@@ -169,13 +245,33 @@ yfinance
 jupyter
 ```
 
-Full list: see `requirements.txt`.
+Full list: see `requirements.txt`. The canonical notebook pins exact versions in
+`requirements-canonical.txt`; any deviation is recorded in the run's
+`environment/environment.json` and surfaces as a manifest warning.
+Reproducibility is claimed as *reproducible from the frozen snapshot and locked
+environment within declared numerical tolerances* — not bit-for-bit across
+different GPUs or software stacks.
 
 ---
 
-## Seed-replacement disclosure
+## Seed policy
 
-One training run (SBTS, asian\_worst\_of\_put, $\kappa = 0.95$, seed 3) diverged during Phase 2: $\nu$ collapsed to a pathological fixed point and $\sigma(R)$ exceeded $10^{10}$ on stress paths. The same configuration converged for the remaining nine seeds. We re-ran three additional seeds (10, 11, 12), all of which converged with metrics within the distribution of the original nine, and replaced seed 3 with the smallest-index converged re-run (seed 10). The full log is in `seed_replacement_log.json` (archived on Zenodo).
+**Legacy pipeline (what was done).** One training run (SBTS,
+asian\_worst\_of\_put, $\kappa = 0.95$, seed 3) diverged during Phase 2: $\nu$
+collapsed to a pathological fixed point and $\sigma(R)$ exceeded $10^{10}$ on
+stress paths. Three additional seeds (10, 11, 12) were re-run and seed 3 was
+replaced by seed 10 while keeping the seed-3 label, so that $n = 10$ was
+preserved. The log is in `seed_replacement_log.json` (archived on Zenodo).
+
+**Canonical pipeline (what happens now).** Seed replacement is not available.
+`SEED_ALIAS_MAP` is empty and asserted empty, the checkpoint audit fails if any
+checkpoint records a seed different from the run key pointing at it, and a run
+that still fails after its retry budget — retries always reuse the same seed and
+the same configuration — is recorded `status="failed"`. Statistical tests then
+use the seed-set intersection and report the real `n`, never a padded one. The
+divergence itself is also addressed directly: Phase 2 now initialises $\nu$ at
+the empirical VaR₀.₉₅ of the Phase-1 validation residuals rather than at zero,
+and the best-epoch bundle restores $\nu$ together with the network.
 
 ---
 
