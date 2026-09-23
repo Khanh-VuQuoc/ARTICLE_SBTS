@@ -4090,6 +4090,11 @@ print(f"  retry policy    : up to {CFG.max_retries_per_run} retries, same seed, 
 
 TEST_RESULTS: List[Dict[str, Any]] = []
 
+# Scratch files for the tests live on THIS machine's local disk. On the shared
+# Drive run directory, two sessions started together would write, tamper with
+# and delete the same scratch checkpoint and fail each other's Gate 1.
+TEST_SCRATCH = Path(tempfile.mkdtemp(prefix="sbts_gate1_"))
+
 
 def _run_test(fn, name: str, group: str) -> bool:
     t0 = time.time()
@@ -4260,7 +4265,7 @@ def test_hash_canonicalisation_is_stable():
 
 
 def test_checkpoint_roundtrip():
-    tmp_dir = PATHS["logs"] / "test_artifacts"
+    tmp_dir = TEST_SCRATCH
     tmp_dir.mkdir(parents=True, exist_ok=True)
     net = HedgingNetwork(d=CFG.d, hidden=(8, 8)).to(DEVICE)
     cvar = CVaRLoss(alpha=CFG.cvar_alpha, nu_init=0.123).to(DEVICE)
@@ -4303,7 +4308,7 @@ def test_checkpoint_roundtrip():
 
 
 def test_atomic_write_and_reload():
-    p = PATHS["logs"] / "test_artifacts" / "atomic.json"
+    p = TEST_SCRATCH / "atomic.json"
     digest = atomic_write_json(p, {"a": 1, "b": [1, 2, 3]})
     assert digest == sha256_file(p)
     assert not p.with_suffix(".json.tmp").exists()
@@ -4391,7 +4396,7 @@ def test_training_resumes_at_the_epoch_it_reached():
     """An interrupted phase must continue, not restart, and land where an
     uninterrupted run of the same length would have landed."""
     global CHECKPOINT_EVERY_EPOCHS
-    tmp = PATHS["logs"] / "test_artifacts"
+    tmp = TEST_SCRATCH
     tmp.mkdir(parents=True, exist_ok=True)
     path = tmp / "resume_probe__mse__last.pt"
     path.unlink(missing_ok=True)
@@ -4442,7 +4447,7 @@ def test_training_resumes_at_the_epoch_it_reached():
 
 def test_completed_phase_is_not_retrained():
     """A progress file marked complete must not be resumed from."""
-    tmp = PATHS["logs"] / "test_artifacts"
+    tmp = TEST_SCRATCH
     tmp.mkdir(parents=True, exist_ok=True)
     path = tmp / "complete_probe__mse__last.pt"
     atomic_write_torch(path, {"run_key": "probe", "phase": "mse",
@@ -5139,9 +5144,40 @@ if IS_SHARDED:
     # The analysis needs every generator, so a shard runs it only when it is
     # the LAST one to finish. Whichever session finishes last therefore carries
     # straight on into Cells 20-27, and no separate analysis session is needed.
+    # A configuration is settled once it is complete OR has permanently failed:
+    # a failed seed is reported with the real n, it must never block the
+    # analysis forever. A "running" or missing entry is still outstanding.
+    _TERMINAL = ("complete", "failed")
     _outstanding = [s["run_key"] for s in canonical_run_queue(CFG)
                     if (TRAINING_RESULTS["runs"].get(s["run_key"], {}).get("status")
-                        != "complete")]
+                        not in _TERMINAL)]
+    # The other session's results file can arrive before its checkpoints do —
+    # Drive syncs between machines with a delay. Analysing now would silently
+    # drop those seeds, so a complete run whose checkpoint is not visible here
+    # yet is treated as outstanding too.
+    if not _outstanding:
+        _not_synced = []
+        for _s in canonical_run_queue(CFG):
+            _e = TRAINING_RESULTS["runs"].get(_s["run_key"], {})
+            if _e.get("status") != "complete":
+                continue
+            for _ph in CFG.test_phases:
+                _cp = (PATHS["checkpoints"] / _s["generator"] /
+                       checkpoint_filename(_s["generator"], _s["option"],
+                                           _s["kappa"], _s["seed"], _ph))
+                if not _cp.exists():
+                    _not_synced.append(_s["run_key"])
+                    break
+        if _not_synced:
+            print(f"\n  Every configuration is recorded as finished, but "
+                  f"{len(_not_synced)} checkpoints from the\n  other session are "
+                  f"not visible on this machine yet (Google Drive is still "
+                  f"syncing).\n  Re-run this notebook in a few minutes; it will "
+                  f"skip the training and go\n  straight to the analysis. First "
+                  f"few: {_not_synced[:3]}")
+            raise ShardTrainingComplete(
+                f"{len(_not_synced)} checkpoints not yet synced from the other "
+                f"session; re-run this notebook in a few minutes for the analysis.")
     print(f"\n{'=' * 78}")
     if _outstanding:
         print(f"  SHARD {SHARD_LABEL} FINISHED TRAINING — expected stopping point.")
