@@ -123,28 +123,30 @@ says so. Resuming works at three levels:
 At most the epochs since the last periodic save are repeated.
 `FORCE_NEW_RUN = True` starts a separate run instead.
 
-To split the work across two GPUs, `notebooks/shards/` holds two ready-to-run
-notebooks. Open each in its own Colab session and run it; nothing to edit:
+To split the work across GPUs, `notebooks/shards/` holds three ready-to-run
+notebooks. Open each in its own Colab session and run them at the same time;
+nothing to edit:
 
-| File | Trains |
-|---|---|
-| `run_T4_1.ipynb` | seeds 0, 2, 4, 6, 8 of every generator, option and strike |
-| `run_T4_2.ipynb` | seeds 1, 3, 5, 7, 9 of every generator, option and strike |
+| File | GPU | Trains |
+|---|---|---|
+| `run_A100_GBM.ipynb` | A100 | the 60 GBM configurations |
+| `run_T4_1.ipynb` | T4 | seeds 0, 2, 4, 6, 8 of Heston and SBTS |
+| `run_T4_2.ipynb` | T4 | seeds 1, 3, 5, 7, 9 of Heston and SBTS |
 
-The split is by seed, not by generator: halving the seeds cuts every cell in
-two, so both sessions get the same amount of the work that is *left*, however
-far an earlier run already got. (A split by generator leaves one GPU idle as
-soon as any generator is finished.)
+Together they cover all 180 configurations with no overlap. The two T4s split
+by seed, which cuts every cell in two, so each gets half of whatever Heston and
+SBTS work is left however far an earlier run already got. A notebook whose
+share is already complete only verifies its checkpoints and stops.
 
-Both join the existing run automatically — the one with the same `config_hash`
-and the most completed configurations. **Whichever finishes last continues
-straight into the audit, evaluation, statistics, diagnostics and tables**, so
-there is no third notebook; the other stops after Cell 19 with
+All three join the existing run automatically — the one with the same
+`config_hash` and the most completed configurations. **Whichever finishes last
+continues straight into the audit, evaluation, statistics, diagnostics and
+tables**, so there is no fourth notebook; the others stop after Cell 19 with
 `ShardTrainingComplete`, the expected end and not an error. After a Colab
-disconnect, run the same notebook again. If both stop without the analysis —
-possible because Google Drive syncs between machines with a delay — run
-either one again: it finds every configuration complete and goes straight to
-the analysis.
+disconnect, run the same notebook again. If they all stop without the analysis
+— possible because Google Drive syncs between machines with a delay — run any
+of them again: it finds every configuration complete and goes straight to the
+analysis.
 
 Stop any session still running an older copy of the notebook first, or two
 processes will train the same configurations.

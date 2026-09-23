@@ -5105,6 +5105,11 @@ def run_pipeline_training(cfg: ExperimentConfig) -> Dict[str, Any]:
 
 
 TRAINING_RESULTS = run_pipeline_training(CFG)
+# Re-read every shard's results from disk now. The view built when this
+# session STARTED is hours old by the time a shard finishes: judging "am I the
+# last one?" from it makes every shard believe the others are still running, so
+# none of them would go on to the analysis.
+TRAINING_RESULTS = load_training_results()
 MANIFEST["shard"] = SHARD_LABEL
 MANIFEST["shard_generators"] = (sorted(SHARD_GENERATORS) if SHARD_GENERATORS
                                 else list(GENERATORS))

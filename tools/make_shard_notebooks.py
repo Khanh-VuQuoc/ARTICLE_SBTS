@@ -6,10 +6,10 @@ that share one run directory. Editing knobs by hand before every session is
 easy to get wrong, so the variants are generated: each opens with its knobs
 already set and is otherwise byte for byte the canonical notebook.
 
-The shipped pair splits by SEED, not by generator. Halving the seeds cuts every
-generator/option/strike cell in two, so the two sessions get the same amount of
-remaining work however far an earlier run already got — a split by generator
-leaves one GPU idle once any generator is finished.
+The shipped set is one A100 session for GBM and two T4 sessions that split
+Heston and SBTS by SEED. Halving the seeds cuts every generator/option/strike
+cell in two, so the two T4s get the same amount of remaining work however far
+an earlier run already got.
 
 These files are GENERATED. Edit SBTS_CANONICAL_A100.ipynb and re-run:
 
@@ -24,35 +24,49 @@ ROOT = Path(__file__).resolve().parent.parent
 MASTER = ROOT / "notebooks" / "SBTS_CANONICAL_A100.ipynb"
 OUT_DIR = ROOT / "notebooks" / "shards"
 
-# name -> (knob overrides, what the session trains, partner file)
+# name -> (knob overrides, what the session trains, which GPU it is meant for)
+# The three shards partition the 180 configurations with no overlap: the A100
+# takes GBM, and the two T4s split Heston and SBTS by seed parity so each gets
+# half of whatever is left however far an earlier run already got.
 VARIANTS = {
-    "run_T4_1": ({"SHARD_SEEDS": "(0, 2, 4, 6, 8)"},
-                 "seeds 0, 2, 4, 6, 8 of every generator, option and strike",
-                 "run_T4_2.ipynb"),
-    "run_T4_2": ({"SHARD_SEEDS": "(1, 3, 5, 7, 9)"},
-                 "seeds 1, 3, 5, 7, 9 of every generator, option and strike",
-                 "run_T4_1.ipynb"),
+    "run_A100_GBM": ({"SHARD_GENERATORS": '("GBM",)'},
+                     "the 60 GBM configurations", "A100"),
+    "run_T4_1": ({"SHARD_GENERATORS": '("Heston", "SBTS")',
+                  "SHARD_SEEDS": "(0, 2, 4, 6, 8)"},
+                 "seeds 0, 2, 4, 6, 8 of Heston and SBTS", "T4"),
+    "run_T4_2": ({"SHARD_GENERATORS": '("Heston", "SBTS")',
+                  "SHARD_SEEDS": "(1, 3, 5, 7, 9)"},
+                 "seeds 1, 3, 5, 7, 9 of Heston and SBTS", "T4"),
 }
 
 BANNER = """> ## Generated file — open it and run, nothing to set up
 >
-> `RUN_MODE = "FULL"` and {knobs} are already set.
-> This notebook trains **{does}**. Its partner is `{partner}`: run the two in
-> two Colab sessions at the same time. Together they cover all 180
-> configurations, and each gets half of whatever work is still left.
+> Meant for: **{gpu}**. `RUN_MODE = "FULL"` and {knobs} are already set.
+> This notebook trains **{does}**.
 >
-> **Whichever of the two finishes LAST carries straight on into the audit,
-> evaluation, statistics, diagnostics and tables. There is no third notebook.**
-> The one that finishes first stops after Cell 19 with `ShardTrainingComplete`;
-> that is the expected end, not an error. If both stop, or the last one is
-> interrupted before the analysis, run either notebook again: it finds all 180
-> complete, skips the training and goes straight to the analysis.
+> It is one of three that run **at the same time**, one per Colab session:
 >
-> `RESUME_RUN_ID` is left as `None`, so both notebooks join the existing run
-> with the same `config_hash` — the one with the most completed
-> configurations. Completed configurations are skipped, a finished Phase 1 is
-> reused, and an interrupted phase continues from the epoch it reached. After a
-> Colab disconnect, just run the same notebook again.
+> | Notebook | GPU | Trains |
+> |---|---|---|
+> | `run_A100_GBM.ipynb` | A100 | the 60 GBM configurations |
+> | `run_T4_1.ipynb` | T4 | seeds 0, 2, 4, 6, 8 of Heston and SBTS |
+> | `run_T4_2.ipynb` | T4 | seeds 1, 3, 5, 7, 9 of Heston and SBTS |
+>
+> Together they cover all 180 configurations with no overlap. A configuration
+> that is already complete is skipped, so a notebook whose share is finished
+> only verifies its checkpoints and stops within minutes.
+>
+> **Whichever notebook finishes LAST carries straight on into the audit,
+> evaluation, statistics, diagnostics and tables. There is no fourth
+> notebook.** The others stop after Cell 19 with `ShardTrainingComplete`; that
+> is the expected end, not an error. If they all stop without the analysis —
+> possible because Google Drive syncs between machines with a delay — run any
+> of them again: it finds all 180 complete and goes straight to the analysis.
+>
+> All three join the existing run automatically (same `config_hash`, most
+> completed configurations). Completed configurations are skipped, a finished
+> Phase 1 is reused, and an interrupted phase continues from the epoch it
+> reached. After a Colab disconnect, just run the same notebook again.
 >
 > **Stop any session still running an older copy of the notebook before you
 > start these**, or two processes will train the same configurations.
@@ -64,7 +78,7 @@ BANNER = """> ## Generated file — open it and run, nothing to set up
 """
 
 
-def build(master: dict, name: str, knobs: dict, does: str, partner: str) -> dict:
+def build(master: dict, name: str, knobs: dict, does: str, gpu: str) -> dict:
     nb = json.loads(json.dumps(master))          # deep copy
     overrides = {"RUN_MODE": '"FULL"', **knobs}
     patched = 0
@@ -73,7 +87,7 @@ def build(master: dict, name: str, knobs: dict, does: str, partner: str) -> dict
         if cell["cell_type"] == "markdown" and "# SBTS Canonical Experiment" in src:
             text = BANNER.format(
                 knobs=" and ".join(f"`{k} = {v}`" for k, v in knobs.items()),
-                does=does, partner=partner)
+                does=does, gpu=gpu)
             cell["source"] = [l + "\n" for l in text.split("\n")] + cell["source"]
         elif cell["cell_type"] == "code" and re.search(r"^RUN_MODE = ", src, re.M):
             for knob, value in overrides.items():
@@ -101,8 +115,8 @@ def main() -> int:
         if stale.stem not in VARIANTS:
             stale.unlink()
             print(f"removed {stale.relative_to(ROOT)} (no longer generated)")
-    for name, (knobs, does, partner) in VARIANTS.items():
-        nb = build(master, name, knobs, does, partner)
+    for name, (knobs, does, gpu) in VARIANTS.items():
+        nb = build(master, name, knobs, does, gpu)
         dst = OUT_DIR / f"{name}.ipynb"
         dst.write_text(json.dumps(nb, indent=1, ensure_ascii=False) + "\n")
         print(f"wrote {dst.relative_to(ROOT)}  ({', '.join(f'{k} = {v}' for k, v in knobs.items())})")
