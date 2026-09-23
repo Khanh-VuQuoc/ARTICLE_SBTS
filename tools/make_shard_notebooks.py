@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Generate ready-to-run shard notebooks from SBTS_CANONICAL_A100.ipynb.
 
-A FULL run is tens of hours, so it is normally split across parallel Colab
-sessions pointed at the same run id. Editing the knobs by hand before every
-session is easy to get wrong, so the variants are generated instead: each one
-opens with RUN_MODE and SHARD_GENERATORS already set, and is otherwise byte
-for byte the canonical notebook.
+A FULL run is tens of hours, so it is split across parallel Colab sessions
+that share one run directory. Editing knobs by hand before every session is
+easy to get wrong, so the variants are generated: each opens with its knobs
+already set and is otherwise byte for byte the canonical notebook.
+
+The shipped pair splits by SEED, not by generator. Halving the seeds cuts every
+generator/option/strike cell in two, so the two sessions get the same amount of
+remaining work however far an earlier run already got — a split by generator
+leaves one GPU idle once any generator is finished.
 
 These files are GENERATED. Edit SBTS_CANONICAL_A100.ipynb and re-run:
 
@@ -20,32 +24,35 @@ ROOT = Path(__file__).resolve().parent.parent
 MASTER = ROOT / "notebooks" / "SBTS_CANONICAL_A100.ipynb"
 OUT_DIR = ROOT / "notebooks" / "shards"
 
-# name -> (SHARD_GENERATORS literal, what the session does)
+# name -> (knob overrides, what the session trains, partner file)
 VARIANTS = {
-    # The same split as the original article_gbm / article_heston_sbts pair.
-    "run_GBM": ("(\"GBM\",)",
-                "trains the 60 GBM configurations"),
-    "run_Heston_SBTS": ("(\"Heston\", \"SBTS\")",
-                        "trains the 120 Heston and SBTS configurations"),
+    "run_T4_1": ({"SHARD_SEEDS": "(0, 2, 4, 6, 8)"},
+                 "seeds 0, 2, 4, 6, 8 of every generator, option and strike",
+                 "run_T4_2.ipynb"),
+    "run_T4_2": ({"SHARD_SEEDS": "(1, 3, 5, 7, 9)"},
+                 "seeds 1, 3, 5, 7, 9 of every generator, option and strike",
+                 "run_T4_1.ipynb"),
 }
 
 BANNER = """> ## Generated file — open it and run, nothing to set up
 >
-> `RUN_MODE = "FULL"` and `SHARD_GENERATORS = {shard}` are already set.
-> This notebook **{does}**. Its partner is the other file in `notebooks/shards/`
-> (`run_GBM.ipynb` / `run_Heston_SBTS.ipynb`) — together they cover all 180.
+> `RUN_MODE = "FULL"` and {knobs} are already set.
+> This notebook trains **{does}**. Its partner is `{partner}`: run the two in
+> two Colab sessions at the same time. Together they cover all 180
+> configurations, and each gets half of whatever work is still left.
 >
 > **Whichever of the two finishes LAST carries straight on into the audit,
 > evaluation, statistics, diagnostics and tables. There is no third notebook.**
 > The one that finishes first stops after Cell 19 with `ShardTrainingComplete`;
-> that is the expected end, not an error. If the last one is interrupted before
-> the analysis, simply run either notebook again: it finds all 180 complete,
-> skips the training and goes straight to the analysis.
+> that is the expected end, not an error. If both stop, or the last one is
+> interrupted before the analysis, run either notebook again: it finds all 180
+> complete, skips the training and goes straight to the analysis.
 >
 > `RESUME_RUN_ID` is left as `None`, so both notebooks join the existing run
 > with the same `config_hash` — the one with the most completed
 > configurations. Completed configurations are skipped, a finished Phase 1 is
-> reused, and an interrupted phase continues from the epoch it reached.
+> reused, and an interrupted phase continues from the epoch it reached. After a
+> Colab disconnect, just run the same notebook again.
 >
 > **Stop any session still running an older copy of the notebook before you
 > start these**, or two processes will train the same configurations.
@@ -57,26 +64,27 @@ BANNER = """> ## Generated file — open it and run, nothing to set up
 """
 
 
-def build(master: dict, name: str, shard: str, does: str) -> dict:
+def build(master: dict, name: str, knobs: dict, does: str, partner: str) -> dict:
     nb = json.loads(json.dumps(master))          # deep copy
-    patched_knobs = 0
+    overrides = {"RUN_MODE": '"FULL"', **knobs}
+    patched = 0
     for cell in nb["cells"]:
         src = "".join(cell["source"])
         if cell["cell_type"] == "markdown" and "# SBTS Canonical Experiment" in src:
-            cell["source"] = [l + "\n" for l in
-                              BANNER.format(shard=shard, does=does).split("\n")] + cell["source"]
+            text = BANNER.format(
+                knobs=" and ".join(f"`{k} = {v}`" for k, v in knobs.items()),
+                does=does, partner=partner)
+            cell["source"] = [l + "\n" for l in text.split("\n")] + cell["source"]
         elif cell["cell_type"] == "code" and re.search(r"^RUN_MODE = ", src, re.M):
-            src, n1 = re.subn(r'^RUN_MODE = "SMOKE".*$',
-                              'RUN_MODE = "FULL"', src, count=1, flags=re.M)
-            src, n2 = re.subn(r"^SHARD_GENERATORS = None.*$",
-                              f"SHARD_GENERATORS = {shard}", src, count=1, flags=re.M)
-            patched_knobs = n1 + n2
-            cell["source"] = [l + "\n" for l in src.split("\n")[:-1]] + [src.split("\n")[-1]]
-            cell["outputs"] = []
-            cell["execution_count"] = None
-    if patched_knobs != 2:
-        raise SystemExit(f"{name}: expected to patch 2 knobs, patched {patched_knobs}. "
-                         f"Has Cell 0 changed?")
+            for knob, value in overrides.items():
+                src, n = re.subn(rf"^{knob} = .*$", f"{knob} = {value}",
+                                 src, count=1, flags=re.M)
+                patched += n
+            lines = src.split("\n")
+            cell["source"] = [l + "\n" for l in lines[:-1]] + [lines[-1]]
+    if patched != len(overrides):
+        raise SystemExit(f"{name}: expected to patch {len(overrides)} knobs, "
+                         f"patched {patched}. Has Cell 0 changed?")
     for cell in nb["cells"]:
         if cell["cell_type"] == "code":
             cell["outputs"] = []
@@ -89,11 +97,15 @@ def main() -> int:
         raise SystemExit(f"missing {MASTER}")
     master = json.loads(MASTER.read_text())
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    for name, (shard, does) in VARIANTS.items():
-        nb = build(master, name, shard, does)
+    for stale in OUT_DIR.glob("*.ipynb"):
+        if stale.stem not in VARIANTS:
+            stale.unlink()
+            print(f"removed {stale.relative_to(ROOT)} (no longer generated)")
+    for name, (knobs, does, partner) in VARIANTS.items():
+        nb = build(master, name, knobs, does, partner)
         dst = OUT_DIR / f"{name}.ipynb"
         dst.write_text(json.dumps(nb, indent=1, ensure_ascii=False) + "\n")
-        print(f"wrote {dst.relative_to(ROOT)}  (SHARD_GENERATORS = {shard})")
+        print(f"wrote {dst.relative_to(ROOT)}  ({', '.join(f'{k} = {v}' for k, v in knobs.items())})")
     return 0
 
 

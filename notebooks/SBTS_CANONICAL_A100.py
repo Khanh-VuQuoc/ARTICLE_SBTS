@@ -163,6 +163,11 @@ FORCE_NEW_RUN = False
 # evaluation, statistics and tables over all shards.
 SHARD_GENERATORS = None
 
+# Split by seed instead of (or as well as) by generator. Halving the seeds cuts
+# every generator/option/strike cell in two, so two workers stay balanced no
+# matter how far an earlier run already got through the queue.
+SHARD_SEEDS = None
+
 # How often a training phase persists enough state to continue from the exact
 # epoch it reached. 0 disables it. This is an execution detail, not an
 # experiment parameter, so it stays out of ExperimentConfig and does not change
@@ -185,7 +190,8 @@ print(f"PRECISION_MODE = {PRECISION_MODE}")
 print(f"RESUME_RUN_ID  = {RESUME_RUN_ID}")
 print(f"SMOKE_SIZING   = {SMOKE_SIZING} (None => derived from RUN_MODE)")
 print(f"FORCE_NEW_RUN  = {FORCE_NEW_RUN}")
-print(f"SHARD          = {SHARD_GENERATORS or 'none (all generators + analysis)'}")
+print(f"SHARD          = generators={SHARD_GENERATORS or 'all'}  "
+      f"seeds={SHARD_SEEDS if SHARD_SEEDS is not None else 'all'}")
 print(f"CHECKPOINT_EVERY_EPOCHS = {CHECKPOINT_EVERY_EPOCHS}"
       f"{' (epoch-level resume disabled)' if not CHECKPOINT_EVERY_EPOCHS else ''}")
 print("\nNo runtime estimate is shown until the Cell-18 smoke benchmark has "
@@ -1152,8 +1158,23 @@ def utc_now() -> str:
 #  filenames, but the bookkeeping files must not be written by two processes at
 #  once, so they carry the shard tag. An unsharded session owns the canonical
 #  manifest.json and merges every shard's results.
-SHARD_TAG = ("__" + "-".join(sorted(SHARD_GENERATORS))) if SHARD_GENERATORS else ""
-SHARD_LABEL = "-".join(sorted(SHARD_GENERATORS)) if SHARD_GENERATORS else "all"
+_shard_parts = []
+if SHARD_GENERATORS:
+    _shard_parts.append("-".join(sorted(SHARD_GENERATORS)))
+if SHARD_SEEDS is not None:
+    _shard_parts.append("seeds" + "-".join(str(int(x)) for x in sorted(SHARD_SEEDS)))
+IS_SHARDED = bool(_shard_parts)
+SHARD_TAG = ("__" + "__".join(_shard_parts)) if IS_SHARDED else ""
+SHARD_LABEL = "__".join(_shard_parts) if IS_SHARDED else "all"
+
+
+def in_shard(generator: str, seed) -> bool:
+    """Whether a configuration belongs to this session's slice of the queue."""
+    if SHARD_GENERATORS and generator not in SHARD_GENERATORS:
+        return False
+    if SHARD_SEEDS is not None and int(seed) not in {int(x) for x in SHARD_SEEDS}:
+        return False
+    return True
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 LOG_PATH = PATHS["logs"] / f"run_{RUN_ID}{SHARD_TAG}.log"
@@ -1456,9 +1477,11 @@ atomic_write_json(PATHS["config"] / "source_snapshot.json", {
     "written_utc": utc_now(),
 })
 ENVIRONMENT = env_snapshot()
-atomic_write_json(PATHS["environment"] / "environment.json", ENVIRONMENT)
-atomic_write_text(PATHS["environment"] / "pip_freeze.txt", pip_freeze_text())
-atomic_write_text(PATHS["environment"] / "gpu_info.txt", json.dumps({
+# Each session records its OWN machine: a run trained across several GPUs
+# (e.g. A100 then T4) must keep every environment, not the last writer's.
+atomic_write_json(PATHS["environment"] / f"environment{SHARD_TAG}.json", ENVIRONMENT)
+atomic_write_text(PATHS["environment"] / f"pip_freeze{SHARD_TAG}.txt", pip_freeze_text())
+atomic_write_text(PATHS["environment"] / f"gpu_info{SHARD_TAG}.txt", json.dumps({
     "device": str(DEVICE), "gpu_name": GPU_NAME, "capability": GPU_CAPABILITY,
     "total_memory_bytes": GPU_TOTAL_MEMORY, "is_a100": IS_A100,
 }, indent=2))
@@ -1466,7 +1489,8 @@ ENVIRONMENT_HASH = canonical_hash(ENVIRONMENT)
 MANIFEST["environment_hash"] = ENVIRONMENT_HASH
 MANIFEST["config_json_sha256"] = _cfg_hash_written
 register_artifact("config/config.json", PATHS["config"] / "config.json", _cfg_hash_written)
-register_artifact("environment/environment.json", PATHS["environment"] / "environment.json")
+register_artifact(f"environment/environment{SHARD_TAG}.json",
+                  PATHS["environment"] / f"environment{SHARD_TAG}.json")
 if DEPENDENCY_REPORT.get("mismatches"):
     add_warning("dependency lock deviations present",
                 DEPENDENCY_REPORT["mismatches"])
@@ -4533,8 +4557,9 @@ print("\nIntegration tests")
 _ok = all([_run_test(f, n, "integration") for f, n in INTEGRATION_TESTS]) and _ok
 
 TEST_TABLE = pd.DataFrame(TEST_RESULTS)
-_h = atomic_write_dataframe(PATHS["logs"] / "test_results.csv", TEST_TABLE)
-register_artifact("logs/test_results.csv", PATHS["logs"] / "test_results.csv", _h)
+_h = atomic_write_dataframe(PATHS["logs"] / f"test_results{SHARD_TAG}.csv", TEST_TABLE)
+register_artifact(f"logs/test_results{SHARD_TAG}.csv",
+                  PATHS["logs"] / f"test_results{SHARD_TAG}.csv", _h)
 MANIFEST["gate_1_static_audit"] = {
     "passed": bool(_ok), "n_tests": len(TEST_RESULTS),
     "n_failed": int((TEST_TABLE["status"] == "FAIL").sum()), "utc": utc_now()}
@@ -4579,7 +4604,17 @@ if not _ok:
 #  measurements — never from a guess.
 # ═════════════════════════════════════════════════════════════════════════════
 
-GATE_MODES = ["REFERENCE_FP32"] + (["A100_FAST"] if CUDA_AVAILABLE else [])
+# A100_FAST relies on bf16 autocast and TF32, which need an Ampere-class GPU
+# (compute capability >= 8.0). On a T4 (7.5) it is not a candidate at all:
+# benchmarking it would at best waste time on emulation and at worst raise a
+# CUDA error that stops the notebook.
+FAST_MODE_SUPPORTED = bool(CUDA_AVAILABLE and GPU_CAPABILITY and GPU_CAPABILITY[0] >= 8)
+GATE_MODES = ["REFERENCE_FP32"] + (["A100_FAST"] if FAST_MODE_SUPPORTED else [])
+if PRECISION_MODE == "A100_FAST" and not FAST_MODE_SUPPORTED:
+    add_warning(f"A100_FAST requested on {GPU_NAME} (capability {GPU_CAPABILITY}), "
+                f"which lacks bf16/TF32; using REFERENCE_FP32")
+    PRECISION_MODE = "REFERENCE_FP32"
+    PRECISION_FLAGS = apply_precision_mode(PRECISION_MODE)
 BENCHMARK_PATH = PATHS["logs"] / f"benchmark{SHARD_TAG}.csv"
 GATE_PATH = PATHS["logs"] / f"gate3_precision{SHARD_TAG}.json"
 
@@ -4636,7 +4671,9 @@ def run_benchmark(mode: str, cfg: ExperimentConfig) -> List[Dict[str, Any]]:
                     hist = {r: evaluate_full(net, _gate_subset(t, cfg.gate_n_test),
                                              payoff_fn, cfg.gate_strike, cfg)["metrics"]
                             for r, t in HIST_TENSORS.items()}
-                except TrainingFailure as exc:               # noqa: BLE001
+                except Exception as exc:                     # noqa: BLE001
+                    # Any failure is a benchmark verdict, never a reason to
+                    # stop the notebook before the real training starts.
                     status, err = "failed", repr(exc)
                     p1 = p2 = None
                     ev = {"metrics": {"std": float("nan"), "cvar95": float("nan")}}
@@ -4907,9 +4944,9 @@ def load_training_results() -> Dict[str, Any]:
 def save_training_results(results: Dict[str, Any]) -> None:
     """Persist ONLY the runs this session owns, into this shard's own file."""
     results["updated_utc"] = utc_now()
-    if SHARD_GENERATORS:
+    if IS_SHARDED:
         own = {k: v for k, v in results["runs"].items()
-               if v.get("generator") in SHARD_GENERATORS}
+               if in_shard(v.get("generator"), v.get("seed", -1))}
         atomic_write_json(RESULTS_PATH,
                           {**{k: v for k, v in results.items() if k != "runs"},
                            "runs": own})
@@ -4938,13 +4975,15 @@ def run_is_complete(entry: Optional[Dict[str, Any]], spec: Dict[str, Any]) -> bo
 def execute_queue(cfg: ExperimentConfig) -> Dict[str, Any]:
     results = load_training_results()
     queue = canonical_run_queue(cfg)
-    if SHARD_GENERATORS:
-        unknown = set(SHARD_GENERATORS) - set(GENERATORS)
-        if unknown:
-            raise ValueError(f"SHARD_GENERATORS names unknown generators: {unknown}")
-        queue = [q for q in queue if q["generator"] in SHARD_GENERATORS]
+    if IS_SHARDED:
+        if SHARD_GENERATORS:
+            unknown = set(SHARD_GENERATORS) - set(GENERATORS)
+            if unknown:
+                raise ValueError(f"SHARD_GENERATORS names unknown generators: {unknown}")
+        queue = [q for q in queue if in_shard(q["generator"], q["seed"])]
         print(f"SHARD {SHARD_LABEL}: this session trains "
-              f"{sorted(SHARD_GENERATORS)} only "
+              f"generators={sorted(SHARD_GENERATORS) if SHARD_GENERATORS else 'all'} "
+              f"seeds={sorted(SHARD_SEEDS) if SHARD_SEEDS is not None else 'all'} "
               f"({len(queue)} of {cfg.n_configurations} configurations).\n")
     data_hashes = {"calibration_returns": CALIBRATION_INPUT_HASH,
                    **{f"generator_{g}": DATA_HASHES[f"generator_{g}"] for g in GENERATORS},
@@ -5069,6 +5108,9 @@ TRAINING_RESULTS = run_pipeline_training(CFG)
 MANIFEST["shard"] = SHARD_LABEL
 MANIFEST["shard_generators"] = (sorted(SHARD_GENERATORS) if SHARD_GENERATORS
                                 else list(GENERATORS))
+MANIFEST["shard_seeds"] = (sorted(int(x) for x in SHARD_SEEDS)
+                           if SHARD_SEEDS is not None else list(CFG.seeds))
+MANIFEST["trained_on_gpu"] = GPU_NAME
 _statuses = pd.Series([v.get("status") for v in TRAINING_RESULTS["runs"].values()])
 _n_complete = int((_statuses == "complete").sum())
 _n_failed = int((_statuses == "failed").sum())
@@ -5088,7 +5130,7 @@ if _n_failed:
         if _v.get("status") == "failed":
             print(f"    {_k}  retries={_v.get('retries')}")
 
-if SHARD_GENERATORS:
+if IS_SHARDED:
     # The analysis needs every generator, so a shard runs it only when it is
     # the LAST one to finish. Whichever session finishes last therefore carries
     # straight on into Cells 20-27, and no separate analysis session is needed.

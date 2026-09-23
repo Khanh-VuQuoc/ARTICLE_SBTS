@@ -123,26 +123,39 @@ says so. Resuming works at three levels:
 At most the epochs since the last periodic save are repeated.
 `FORCE_NEW_RUN = True` starts a separate run instead.
 
-To split the work, `notebooks/shards/` holds two ready-to-run notebooks — the
-same split as the original `article_gbm` / `article_heston_sbts` pair. Open
-each in its own session and run it; nothing to edit:
+To split the work across two GPUs, `notebooks/shards/` holds two ready-to-run
+notebooks. Open each in its own Colab session and run it; nothing to edit:
 
 | File | Trains |
 |---|---|
-| `run_GBM.ipynb` | the 60 GBM configurations |
-| `run_Heston_SBTS.ipynb` | the 120 Heston and SBTS configurations |
+| `run_T4_1.ipynb` | seeds 0, 2, 4, 6, 8 of every generator, option and strike |
+| `run_T4_2.ipynb` | seeds 1, 3, 5, 7, 9 of every generator, option and strike |
+
+The split is by seed, not by generator: halving the seeds cuts every cell in
+two, so both sessions get the same amount of the work that is *left*, however
+far an earlier run already got. (A split by generator leaves one GPU idle as
+soon as any generator is finished.)
 
 Both join the existing run automatically — the one with the same `config_hash`
 and the most completed configurations. **Whichever finishes last continues
 straight into the audit, evaluation, statistics, diagnostics and tables**, so
 there is no third notebook; the other stops after Cell 19 with
-`ShardTrainingComplete`, the expected end and not an error. If the last one is
-interrupted before the analysis, run either notebook again: it finds every
-configuration complete and goes straight to the analysis.
+`ShardTrainingComplete`, the expected end and not an error. After a Colab
+disconnect, run the same notebook again. If both stop without the analysis —
+possible because Google Drive syncs between machines with a delay — run
+either one again: it finds every configuration complete and goes straight to
+the analysis.
 
 Stop any session still running an older copy of the notebook first, or two
-processes will train the same configurations. Two sessions shorten wall time
-only on separate GPUs, and only if the remaining work is split between them.
+processes will train the same configurations.
+
+Both notebooks run on a T4. The A100_FAST numerical mode needs bf16/TF32
+(compute capability 8.0+), so on a T4 Gate 3 benchmarks only REFERENCE_FP32 —
+the same mode the rest of the run uses, which keeps work done on different GPU
+types comparable. Each session records its own GPU and environment
+(`environment/environment__<shard>.json`), so a run trained across an A100 and
+T4s keeps the provenance of every machine; disclose the mixed hardware when
+reporting.
 
 These files are generated — edit `SBTS_CANONICAL_A100.ipynb` and re-run
 `python3 tools/make_shard_notebooks.py`.
