@@ -6,10 +6,9 @@ that share one run directory. Editing knobs by hand before every session is
 easy to get wrong, so the variants are generated: each opens with its knobs
 already set and is otherwise byte for byte the canonical notebook.
 
-The shipped set is one A100 session for GBM and two T4 sessions that split
-Heston and SBTS by SEED. Halving the seeds cuts every generator/option/strike
-cell in two, so the two T4s get the same amount of remaining work however far
-an earlier run already got.
+The shipped pair is two T4 sessions that split every generator by SEED.
+Halving the seeds cuts every generator/option/strike cell in two, so both get
+the same amount of remaining work however far an earlier run already got.
 
 These files are GENERATED. Edit SBTS_CANONICAL_A100.ipynb and re-run:
 
@@ -25,18 +24,15 @@ MASTER = ROOT / "notebooks" / "SBTS_CANONICAL_A100.ipynb"
 OUT_DIR = ROOT / "notebooks" / "shards"
 
 # name -> (knob overrides, what the session trains, which GPU it is meant for)
-# The three shards partition the 180 configurations with no overlap: the A100
-# takes GBM, and the two T4s split Heston and SBTS by seed parity so each gets
-# half of whatever is left however far an earlier run already got.
+# Two T4 sessions split ALL generators by seed parity. Halving the seeds cuts
+# every generator/option/strike cell in two, so each session gets half of
+# whatever is left however far an earlier run already got, and together they
+# cover all 180 configurations with no overlap.
 VARIANTS = {
-    "run_A100_GBM": ({"SHARD_GENERATORS": '("GBM",)'},
-                     "the 60 GBM configurations", "A100"),
-    "run_T4_1": ({"SHARD_GENERATORS": '("Heston", "SBTS")',
-                  "SHARD_SEEDS": "(0, 2, 4, 6, 8)"},
-                 "seeds 0, 2, 4, 6, 8 of Heston and SBTS", "T4"),
-    "run_T4_2": ({"SHARD_GENERATORS": '("Heston", "SBTS")',
-                  "SHARD_SEEDS": "(1, 3, 5, 7, 9)"},
-                 "seeds 1, 3, 5, 7, 9 of Heston and SBTS", "T4"),
+    "run_T4_1": ({"SHARD_SEEDS": "(0, 2, 4, 6, 8)"},
+                 "seeds 0, 2, 4, 6, 8 of GBM, Heston and SBTS", "T4"),
+    "run_T4_2": ({"SHARD_SEEDS": "(1, 3, 5, 7, 9)"},
+                 "seeds 1, 3, 5, 7, 9 of GBM, Heston and SBTS", "T4"),
 }
 
 BANNER = """> ## Generated file — open it and run, nothing to set up
@@ -44,29 +40,29 @@ BANNER = """> ## Generated file — open it and run, nothing to set up
 > Meant for: **{gpu}**. `RUN_MODE = "FULL"` and {knobs} are already set.
 > This notebook trains **{does}**.
 >
-> It is one of three that run **at the same time**, one per Colab session:
+> It is one of two that run **at the same time**, one per Colab session:
 >
 > | Notebook | GPU | Trains |
 > |---|---|---|
-> | `run_A100_GBM.ipynb` | A100 | the 60 GBM configurations |
-> | `run_T4_1.ipynb` | T4 | seeds 0, 2, 4, 6, 8 of Heston and SBTS |
-> | `run_T4_2.ipynb` | T4 | seeds 1, 3, 5, 7, 9 of Heston and SBTS |
+> | `run_T4_1.ipynb` | T4 | seeds 0, 2, 4, 6, 8 of GBM, Heston and SBTS |
+> | `run_T4_2.ipynb` | T4 | seeds 1, 3, 5, 7, 9 of GBM, Heston and SBTS |
 >
-> Together they cover all 180 configurations with no overlap. A configuration
-> that is already complete is skipped, so a notebook whose share is finished
-> only verifies its checkpoints and stops within minutes.
+> Together they cover all 180 configurations with no overlap, and each gets
+> half of whatever work is left. Configurations that are already complete are
+> skipped.
 >
-> **Whichever notebook finishes LAST carries straight on into the audit,
-> evaluation, statistics, diagnostics and tables. There is no fourth
-> notebook.** The others stop after Cell 19 with `ShardTrainingComplete`; that
-> is the expected end, not an error. If they all stop without the analysis —
-> possible because Google Drive syncs between machines with a delay — run any
-> of them again: it finds all 180 complete and goes straight to the analysis.
+> **Whichever of the two finishes LAST carries straight on into the audit,
+> evaluation, statistics, diagnostics and tables. There is no third notebook.**
+> The one that finishes first stops after Cell 19 with `ShardTrainingComplete`;
+> that is the expected end, not an error. If both stop without the analysis —
+> possible because Google Drive syncs between machines with a delay — run
+> either one again: it finds all 180 complete and goes straight to the
+> analysis.
 >
-> All three join the existing run automatically (same `config_hash`, most
-> completed configurations). Completed configurations are skipped, a finished
-> Phase 1 is reused, and an interrupted phase continues from the epoch it
-> reached. After a Colab disconnect, just run the same notebook again.
+> Both join the existing run automatically (same `config_hash`, most completed
+> configurations). Completed configurations are skipped, a finished Phase 1 is
+> reused, and an interrupted phase continues from the epoch it reached. After a
+> Colab disconnect, just run the same notebook again.
 >
 > **Stop any session still running an older copy of the notebook before you
 > start these**, or two processes will train the same configurations.
