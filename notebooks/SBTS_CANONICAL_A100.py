@@ -163,6 +163,12 @@ FORCE_NEW_RUN = False
 # evaluation, statistics and tables over all shards.
 SHARD_GENERATORS = None
 
+# How often a training phase persists enough state to continue from the exact
+# epoch it reached. 0 disables it. This is an execution detail, not an
+# experiment parameter, so it stays out of ExperimentConfig and does not change
+# config_hash.
+CHECKPOINT_EVERY_EPOCHS = 25
+
 # Grid sizing. None => shrunk when RUN_MODE == "SMOKE", full otherwise. Set it
 # explicitly to True when analysing or re-running diagnostics over a run that
 # was produced with the smoke grid.
@@ -180,6 +186,8 @@ print(f"RESUME_RUN_ID  = {RESUME_RUN_ID}")
 print(f"SMOKE_SIZING   = {SMOKE_SIZING} (None => derived from RUN_MODE)")
 print(f"FORCE_NEW_RUN  = {FORCE_NEW_RUN}")
 print(f"SHARD          = {SHARD_GENERATORS or 'none (all generators + analysis)'}")
+print(f"CHECKPOINT_EVERY_EPOCHS = {CHECKPOINT_EVERY_EPOCHS}"
+      f"{' (epoch-level resume disabled)' if not CHECKPOINT_EVERY_EPOCHS else ''}")
 print("\nNo runtime estimate is shown until the Cell-18 smoke benchmark has "
       "measured this machine.")
 
@@ -1370,6 +1378,37 @@ def capture_rng_state() -> Dict[str, Any]:
         state["torch_cuda"] = [s.cpu().numpy().tolist()
                                for s in torch.cuda.get_rng_state_all()]
     return state
+
+
+def restore_rng_state(state: Optional[Dict[str, Any]]) -> bool:
+    """Inverse of capture_rng_state. Returns True only if EVERY stream was
+    restored, so a caller can say honestly whether a resumed run continues the
+    original random stream or merely a compatible one."""
+    if not state:
+        return False
+    ok = True
+    try:
+        torch.set_rng_state(torch.tensor(state["torch"], dtype=torch.uint8))
+    except Exception as exc:                                 # noqa: BLE001
+        ok = False; log(f"[WARN] torch RNG not restored: {exc!r}", "warning", echo=False)
+    try:
+        np_state = state["numpy"]
+        np.random.set_state((str(np_state[0]),
+                             np.array(np_state[1], dtype=np.uint32),
+                             int(np_state[2]), int(np_state[3]), float(np_state[4])))
+    except Exception as exc:                                 # noqa: BLE001
+        ok = False; log(f"[WARN] numpy RNG not restored: {exc!r}", "warning", echo=False)
+    try:
+        random.setstate((3, tuple(int(x) for x in state["python"]), None))
+    except Exception as exc:                                 # noqa: BLE001
+        ok = False; log(f"[WARN] python RNG not restored: {exc!r}", "warning", echo=False)
+    if torch.cuda.is_available() and state.get("torch_cuda"):
+        try:
+            torch.cuda.set_rng_state_all(
+                [torch.tensor(x, dtype=torch.uint8) for x in state["torch_cuda"]])
+        except Exception as exc:                             # noqa: BLE001
+            ok = False; log(f"[WARN] CUDA RNG not restored: {exc!r}", "warning", echo=False)
+    return ok
 
 
 def tensors_to_cpu(obj):
@@ -3562,7 +3601,12 @@ print(f"  filename pattern  : "
 #      post <= clip + tol is asserted.
 #   4. nu INITIALISATION. Phase 2 starts nu at the empirical VaR_0.95 of the
 #      Phase-1 validation residuals instead of 0.
-#   5. FAILURE PROTOCOL. Non-finite loss/parameters/gradients, a checkpoint
+#   5. EPOCH-LEVEL RESUME. A phase persists model, loss, optimizer, scheduler,
+#      history, patience and RNG state every CHECKPOINT_EVERY_EPOCHS epochs, so
+#      an interrupted session continues from the epoch it reached instead of
+#      restarting the configuration. When the RNG state is restored in full the
+#      continuation follows the original random stream; that is recorded.
+#   6. FAILURE PROTOCOL. Non-finite loss/parameters/gradients, a checkpoint
 #      that will not reload, a non-finite metric, a sample-count mismatch or a
 #      hash mismatch mark the run failed. Retries reuse the SAME seed and the
 #      SAME configuration; a seed is never swapped for another one.
@@ -3615,6 +3659,39 @@ def _restore_bundle(bundle, net, loss_module, optimizer=None, scheduler=None):
         scheduler.load_state_dict(bundle["scheduler_state_dict"])
 
 
+def _progress_payload(spec_key: str, phase: str, epoch: int, best_val: float,
+                      patience_counter: int, history: Dict[str, Any],
+                      best_bundle, last_bundle, complete: bool) -> Dict[str, Any]:
+    return {"run_key": spec_key, "phase": phase, "config_hash": CONFIG_HASH,
+            "schema_version": CFG.schema_version,
+            "next_epoch": int(epoch + 1), "best_val_loss": float(best_val),
+            "patience_counter": int(patience_counter), "history": history,
+            "best_bundle": best_bundle, "last_bundle": last_bundle,
+            "phase_complete": bool(complete), "saved_utc": utc_now()}
+
+
+def _load_progress(path: Optional[Path], spec_key: str,
+                   phase: str) -> Optional[Dict[str, Any]]:
+    """Read an in-progress phase, or None when there is nothing usable."""
+    if not path or not Path(path).exists():
+        return None
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=False)
+    except Exception as exc:                                 # noqa: BLE001
+        add_warning(f"{spec_key} {phase}: unreadable progress file ({exc!r}); "
+                    f"the phase restarts from epoch 0")
+        return None
+    if (payload.get("config_hash") != CONFIG_HASH
+            or payload.get("run_key") != spec_key
+            or payload.get("phase") != phase):
+        return None
+    if payload.get("phase_complete"):
+        return None
+    if payload.get("best_bundle") is None or payload.get("last_bundle") is None:
+        return None
+    return payload
+
+
 @torch.no_grad()
 def _validation_loss(net, loss_callable, S_val, payoff_fn, kappa, cfg,
                      chunk: int = 8192) -> Tuple[float, np.ndarray]:
@@ -3632,8 +3709,13 @@ def train_phase(*, net: HedgingNetwork, loss_module, trainable_params,
                 kappa: float, lr: float, max_epochs: int, patience: int,
                 cfg: ExperimentConfig, phase: str,
                 scaler: Optional["torch.cuda.amp.GradScaler"] = None,
-                verbose_every: int = 100) -> Dict[str, Any]:
-    """Train one phase; return the best bundle, the last bundle and the history."""
+                verbose_every: int = 100,
+                progress_path: Optional[Path] = None,
+                spec_key: str = "") -> Dict[str, Any]:
+    """Train one phase; return the best bundle, the last bundle and the history.
+
+    With `progress_path` the phase is resumable at epoch granularity: it picks
+    up where an interrupted session stopped rather than starting over."""
     M = int(S_train.shape[0])
     bs = int(cfg.batch_size)
     optimizer = optim.Adam(trainable_params, lr=lr,
@@ -3648,10 +3730,41 @@ def train_phase(*, net: HedgingNetwork, loss_module, trainable_params,
                "samples_seen": []}
     best_val, best_bundle, patience_counter = float("inf"), None, 0
     last_bundle = None
+    start_epoch = 0
+    rng_stream_continued = True
     t0 = time.time()
     epochs_run = 0
 
-    for epoch in range(max_epochs):
+    resumed = _load_progress(progress_path, spec_key, phase)
+    if resumed is not None:
+        _restore_bundle(resumed["last_bundle"], net, loss_module, optimizer, scheduler)
+        best_bundle = resumed["best_bundle"]
+        last_bundle = resumed["last_bundle"]
+        best_val = float(resumed["best_val_loss"])
+        patience_counter = int(resumed["patience_counter"])
+        history = resumed["history"]
+        start_epoch = int(resumed["next_epoch"])
+        rng_stream_continued = restore_rng_state(resumed["last_bundle"].get("rng_state"))
+        print(f"      resuming {phase} at epoch {start_epoch} "
+              f"(best val {best_val:.6f}, patience {patience_counter}"
+              f"{'' if rng_stream_continued else ', RNG stream NOT restored'})",
+              flush=True)
+        if not rng_stream_continued:
+            add_warning(f"{spec_key} {phase}: resumed without restoring the RNG "
+                        f"state; the continuation is compatible but does not "
+                        f"follow the original random stream")
+        epochs_run = start_epoch
+
+    def _persist(epoch_idx: int, complete: bool) -> None:
+        if progress_path is None or (not complete and not CHECKPOINT_EVERY_EPOCHS):
+            return
+        atomic_write_torch(progress_path,
+                           _progress_payload(spec_key, phase, epoch_idx, best_val,
+                                             patience_counter, history,
+                                             best_bundle, last_bundle, complete),
+                           verify=False)
+
+    for epoch in range(start_epoch, max_epochs):
         epochs_run = epoch + 1
         t_ep = time.time()
         net.train()
@@ -3723,7 +3836,11 @@ def train_phase(*, net: HedgingNetwork, loss_module, trainable_params,
         else:
             patience_counter += 1
             if patience_counter >= patience:
+                _persist(epoch, complete=True)
                 break
+
+        if CHECKPOINT_EVERY_EPOCHS and (epoch + 1) % CHECKPOINT_EVERY_EPOCHS == 0:
+            _persist(epoch, complete=False)
 
         if verbose_every and (epoch + 1) % verbose_every == 0:
             print(f"      epoch {epoch + 1:4d}  train={ep_loss:.6f}  "
@@ -3733,10 +3850,13 @@ def train_phase(*, net: HedgingNetwork, loss_module, trainable_params,
     if best_bundle is None:
         raise TrainingFailure(f"{phase}: no epoch produced a validation improvement")
 
+    _persist(epochs_run - 1, complete=True)
     _restore_bundle(best_bundle, net, loss_module)          # evaluate from BEST
     net.eval()
     return {"best_bundle": best_bundle, "last_bundle": last_bundle,
             "history": history, "epochs_run": epochs_run,
+            "resumed_from_epoch": start_epoch if resumed is not None else None,
+            "rng_stream_continued": rng_stream_continued,
             "best_val_loss": float(best_val), "wall_seconds": time.time() - t0,
             "optimizer": optimizer, "scheduler": scheduler}
 
@@ -3767,54 +3887,89 @@ def train_configuration(spec: Dict[str, Any], cfg: ExperimentConfig,
                                "kappa": kappa, "phases": {}}
 
     # ── Phase 1: MSE, V0 trainable ─────────────────────────────────────────
-    p1 = train_phase(net=net, loss_module=loss_mse,
-                     trainable_params=list(net.parameters()),
-                     S_train=S_tr, S_val=S_vl, payoff_fn=payoff_fn, kappa=kappa,
-                     lr=cfg.mse_lr, max_epochs=cfg.mse_epochs,
-                     patience=cfg.mse_patience, cfg=cfg, phase="mse",
-                     verbose_every=verbose_every)
-    mse_eval = evaluate_full(net, S_te, payoff_fn, kappa, cfg)
-    mse_hist = {r: evaluate_full(net, t, payoff_fn, kappa, cfg)
-                for r, t in hist_tensors.items()}
+    p1_path = ckpt_dir / checkpoint_filename(gen, opt_name, kappa, seed, "mse")
+    p1_progress = ckpt_dir / checkpoint_filename(gen, opt_name, kappa, seed,
+                                                 "mse", "last")
+    p1_done = None
+    if p1_path.exists():
+        try:                       # a finished Phase 1 is never re-trained
+            p1_done = verify_checkpoint(p1_path)
+        except Exception as exc:                             # noqa: BLE001
+            add_warning(f"{spec['run_key']} mse: existing checkpoint failed "
+                        f"verification ({exc!r}); Phase 1 will be re-run")
+            p1_done = None
+
+    if p1_done is not None:
+        net.load_state_dict({k: v.to(DEVICE)
+                             for k, v in p1_done["model_state_dict"].items()})
+        net.eval()
+        results["phases"]["mse"] = {
+            "checkpoint": p1_path.name, "sha256": sha256_file(p1_path),
+            "artifact_hash": p1_done["artifact_hash"],
+            "best_epoch": p1_done["best_epoch"],
+            "best_val_loss": p1_done["best_val_loss"],
+            "epochs_run": p1_done.get("epochs_run"),
+            "wall_seconds": p1_done.get("wall_seconds"),
+            "metrics": p1_done["synthetic_test_metrics"],
+            "historical": p1_done["historical_metrics"],
+            "V0": float(p1_done["V0"]), "reused_existing_checkpoint": True}
+        phase1_seconds = 0.0
+        phase1_best_epoch = p1_done["best_epoch"]
+        print(f"      Phase 1 already complete and verified "
+              f"(best epoch {phase1_best_epoch}); reusing it.", flush=True)
+    else:
+        p1 = train_phase(net=net, loss_module=loss_mse,
+                         trainable_params=list(net.parameters()),
+                         S_train=S_tr, S_val=S_vl, payoff_fn=payoff_fn, kappa=kappa,
+                         lr=cfg.mse_lr, max_epochs=cfg.mse_epochs,
+                         patience=cfg.mse_patience, cfg=cfg, phase="mse",
+                         verbose_every=verbose_every,
+                         progress_path=p1_progress, spec_key=spec["run_key"])
+        mse_eval = evaluate_full(net, S_te, payoff_fn, kappa, cfg)
+        mse_hist = {r: evaluate_full(net, t, payoff_fn, kappa, cfg)
+                    for r, t in hist_tensors.items()}
+        p1_payload = build_checkpoint_payload(
+            spec=spec, phase="mse", bundle=p1["best_bundle"], history=p1["history"],
+            synthetic_metrics=mse_eval["metrics"],
+            historical_metrics={r: e["metrics"] for r, e in mse_hist.items()},
+            model_spec=model_spec, data_hashes=data_hashes,
+            extra={"epochs_run": p1["epochs_run"], "wall_seconds": p1["wall_seconds"],
+                   "precision_mode": PRECISION_MODE,
+                   "resumed_from_epoch": p1["resumed_from_epoch"],
+                   "rng_stream_continued": p1["rng_stream_continued"]})
+        p1_digest = save_checkpoint(p1_payload, p1_path)
+        verify_checkpoint(p1_path)
+        results["phases"]["mse"] = {
+            "checkpoint": p1_path.name, "sha256": p1_digest,
+            "artifact_hash": p1_payload["artifact_hash"],
+            "best_epoch": p1_payload["best_epoch"],
+            "best_val_loss": p1_payload["best_val_loss"],
+            "epochs_run": p1["epochs_run"], "wall_seconds": p1["wall_seconds"],
+            "resumed_from_epoch": p1["resumed_from_epoch"],
+            "metrics": mse_eval["metrics"],
+            "historical": {r: e["metrics"] for r, e in mse_hist.items()},
+            "V0": float(net.V0.item())}
+        phase1_seconds = p1["wall_seconds"]
+        phase1_best_epoch = p1_payload["best_epoch"]
+        _restore_bundle(p1["best_bundle"], net, None)
+
+    # nu is initialised from the Phase-1 validation residuals in both paths.
     _, p1_val_residuals = _validation_loss(net, loss_mse, S_vl, payoff_fn, kappa, cfg)
 
-    p1_payload = build_checkpoint_payload(
-        spec=spec, phase="mse", bundle=p1["best_bundle"], history=p1["history"],
-        synthetic_metrics=mse_eval["metrics"],
-        historical_metrics={r: e["metrics"] for r, e in mse_hist.items()},
-        model_spec=model_spec, data_hashes=data_hashes,
-        extra={"epochs_run": p1["epochs_run"], "wall_seconds": p1["wall_seconds"],
-               "precision_mode": PRECISION_MODE})
-    p1_path = ckpt_dir / checkpoint_filename(gen, opt_name, kappa, seed, "mse")
-    p1_digest = save_checkpoint(p1_payload, p1_path)
-    verify_checkpoint(p1_path)
-    atomic_write_torch(ckpt_dir / checkpoint_filename(gen, opt_name, kappa, seed,
-                                                      "mse", "last"),
-                       {"run_key": spec["run_key"], "phase": "mse",
-                        "config_hash": CONFIG_HASH,
-                        "last_bundle": p1["last_bundle"]}, verify=False)
-    results["phases"]["mse"] = {
-        "checkpoint": p1_path.name, "sha256": p1_digest,
-        "artifact_hash": p1_payload["artifact_hash"],
-        "best_epoch": p1_payload["best_epoch"],
-        "best_val_loss": p1_payload["best_val_loss"],
-        "epochs_run": p1["epochs_run"], "wall_seconds": p1["wall_seconds"],
-        "metrics": mse_eval["metrics"],
-        "historical": {r: e["metrics"] for r, e in mse_hist.items()},
-        "V0": float(net.V0.item())}
-
     # ── Phase 2: CVaR curriculum, V0 frozen, nu from validation VaR ────────
-    _restore_bundle(p1["best_bundle"], net, None)
     net.V0.requires_grad_(False)
     nu_init = empirical_var(p1_val_residuals, cfg.cvar_alpha)
     cvar_loss = CVaRLoss(alpha=cfg.cvar_alpha, nu_init=nu_init).to(DEVICE)
     cvar_params = [p for p in net.parameters() if p.requires_grad] + list(cvar_loss.parameters())
 
+    p2_progress = ckpt_dir / checkpoint_filename(gen, opt_name, kappa, seed,
+                                                 "cvar", "last")
     p2 = train_phase(net=net, loss_module=cvar_loss, trainable_params=cvar_params,
                      S_train=S_tr, S_val=S_vl, payoff_fn=payoff_fn, kappa=kappa,
                      lr=cfg.cvar_lr, max_epochs=cfg.cvar_epochs,
                      patience=cfg.cvar_patience, cfg=cfg, phase="cvar",
-                     verbose_every=max(1, verbose_every // 2))
+                     verbose_every=max(1, verbose_every // 2),
+                     progress_path=p2_progress, spec_key=spec["run_key"])
     cvar_eval = evaluate_full(net, S_te, payoff_fn, kappa, cfg)
     cvar_hist = {r: evaluate_full(net, t, payoff_fn, kappa, cfg)
                  for r, t in hist_tensors.items()}
@@ -3829,21 +3984,19 @@ def train_configuration(spec: Dict[str, Any], cfg: ExperimentConfig,
                "nu_init_empirical_var": float(nu_init),
                "nu_init_source": "empirical VaR_alpha of Phase-1 validation residuals",
                "v0_frozen": True,
-               "phase1_best_epoch": p1_payload["best_epoch"]})
+               "phase1_best_epoch": phase1_best_epoch,
+               "resumed_from_epoch": p2["resumed_from_epoch"],
+               "rng_stream_continued": p2["rng_stream_continued"]})
     p2_path = ckpt_dir / checkpoint_filename(gen, opt_name, kappa, seed, "cvar")
     p2_digest = save_checkpoint(p2_payload, p2_path)
     verify_checkpoint(p2_path)
-    atomic_write_torch(ckpt_dir / checkpoint_filename(gen, opt_name, kappa, seed,
-                                                      "cvar", "last"),
-                       {"run_key": spec["run_key"], "phase": "cvar",
-                        "config_hash": CONFIG_HASH,
-                        "last_bundle": p2["last_bundle"]}, verify=False)
     results["phases"]["cvar"] = {
         "checkpoint": p2_path.name, "sha256": p2_digest,
         "artifact_hash": p2_payload["artifact_hash"],
         "best_epoch": p2_payload["best_epoch"],
         "best_val_loss": p2_payload["best_val_loss"],
         "epochs_run": p2["epochs_run"], "wall_seconds": p2["wall_seconds"],
+        "resumed_from_epoch": p2["resumed_from_epoch"],
         "metrics": cvar_eval["metrics"],
         "historical": {r: e["metrics"] for r, e in cvar_hist.items()},
         "V0": float(net.V0.item()), "nu": float(cvar_loss.nu.item()),
@@ -3856,7 +4009,7 @@ def train_configuration(spec: Dict[str, Any], cfg: ExperimentConfig,
                     f"{spec['run_key']} {phase_name}: non-finite metric {key}")
 
     results["status"] = "complete"
-    results["wall_seconds"] = p1["wall_seconds"] + p2["wall_seconds"]
+    results["wall_seconds"] = phase1_seconds + p2["wall_seconds"]
     del net, cvar_loss
     clear_mem()
     return results
@@ -3865,6 +4018,9 @@ def train_configuration(spec: Dict[str, Any], cfg: ExperimentConfig,
 print("Training engine ready.")
 print("  batching        : range(0, M, batch_size)  (tail batch kept, "
       "samples_seen asserted)")
+print(f"  epoch resume    : every {CHECKPOINT_EVERY_EPOCHS} epochs"
+      if CHECKPOINT_EVERY_EPOCHS else "  epoch resume    : disabled")
+print("                    a finished Phase 1 is reused, never re-trained")
 print("  best bundle     : model + loss(nu) + optimizer + scheduler + epoch + rng")
 print("  gradient log    : true post-clip norm, invariant post <= "
       f"{CFG.grad_clip} + {CFG.grad_clip_tolerance}")
@@ -4180,6 +4336,82 @@ def test_nu_initialised_from_validation_var():
     assert nu > 0.3, "VaR_0.95 must sit in the upper tail, not at zero"
 
 
+def test_training_resumes_at_the_epoch_it_reached():
+    """An interrupted phase must continue, not restart, and land where an
+    uninterrupted run of the same length would have landed."""
+    global CHECKPOINT_EVERY_EPOCHS
+    tmp = PATHS["logs"] / "test_artifacts"
+    tmp.mkdir(parents=True, exist_ok=True)
+    path = tmp / "resume_probe__mse__last.pt"
+    path.unlink(missing_ok=True)
+    cfg = dataclasses.replace(CFG, batch_size=8)
+    S_tr, S_vl = _mini_paths(24, 4, cfg.d, seed=11), _mini_paths(8, 4, cfg.d, seed=12)
+    saved_interval = CHECKPOINT_EVERY_EPOCHS
+
+    def _run(max_epochs, resume):
+        seed_all(7)
+        net = HedgingNetwork(d=cfg.d, hidden=(8, 8)).to(DEVICE)
+        return net, train_phase(
+            net=net, loss_module=loss_mse, trainable_params=list(net.parameters()),
+            S_train=S_tr, S_val=S_vl, payoff_fn=payoff_basket_asian_call,
+            kappa=1.0, lr=1e-3, max_epochs=max_epochs, patience=max_epochs,
+            cfg=cfg, phase="mse", verbose_every=0,
+            progress_path=path if resume else None, spec_key="resume_probe")
+
+    try:
+        CHECKPOINT_EVERY_EPOCHS = 1
+        # Reference: six uninterrupted epochs, no progress file.
+        _, ref = _run(6, resume=False)
+        # Interrupted: three epochs, then resume and run to six. Reaching a
+        # budget of three is a normal completion, so the progress file is
+        # rewritten to the state a crash right after epoch 3's periodic save
+        # would have left behind: same content, phase_complete still False.
+        path.unlink(missing_ok=True)
+        _, first = _run(3, resume=True)
+        assert first["epochs_run"] == 3
+        saved = torch.load(path, map_location="cpu", weights_only=False)
+        assert saved["next_epoch"] == 3, saved["next_epoch"]
+        saved["phase_complete"] = False
+        atomic_write_torch(path, saved, verify=False)
+        net2, second = _run(6, resume=True)
+        assert second["resumed_from_epoch"] == 3, second["resumed_from_epoch"]
+        assert second["epochs_run"] == 6
+        # It continued: the history carries all six epochs, the first three of
+        # which are the ones already computed.
+        assert len(second["history"]["val_loss"]) == 6
+        assert second["history"]["val_loss"][:3] == first["history"]["val_loss"]
+        # And it matches the uninterrupted run, so resuming costs no accuracy.
+        assert second["history"]["val_loss"] == ref["history"]["val_loss"], (
+            "resumed run diverged from the uninterrupted run")
+        assert abs(second["best_val_loss"] - ref["best_val_loss"]) < 1e-9
+    finally:
+        CHECKPOINT_EVERY_EPOCHS = saved_interval
+        path.unlink(missing_ok=True)
+
+
+def test_completed_phase_is_not_retrained():
+    """A progress file marked complete must not be resumed from."""
+    tmp = PATHS["logs"] / "test_artifacts"
+    tmp.mkdir(parents=True, exist_ok=True)
+    path = tmp / "complete_probe__mse__last.pt"
+    atomic_write_torch(path, {"run_key": "probe", "phase": "mse",
+                              "config_hash": CONFIG_HASH, "next_epoch": 5,
+                              "best_val_loss": 0.1, "patience_counter": 0,
+                              "history": {}, "best_bundle": {"x": 1},
+                              "last_bundle": {"x": 1}, "phase_complete": True},
+                       verify=False)
+    assert _load_progress(path, "probe", "mse") is None
+    # A different configuration or run key is never picked up either.
+    atomic_write_torch(path, {"run_key": "probe", "phase": "mse",
+                              "config_hash": "deadbeef", "next_epoch": 5,
+                              "best_val_loss": 0.1, "patience_counter": 0,
+                              "history": {}, "best_bundle": {"x": 1},
+                              "last_bundle": {"x": 1}, "phase_complete": False},
+                       verify=False)
+    assert _load_progress(path, "probe", "mse") is None
+    path.unlink(missing_ok=True)
+
+
 def test_rollout_resume_equivalence():
     """A batch regenerated from (seed, batch_index) must be bit-identical."""
     X = X_REF_T[:64, :6, :]
@@ -4257,6 +4489,10 @@ INTEGRATION_TESTS = [
     (test_post_clip_norm_invariant, "post-clip gradient norm invariant"),
     (test_best_bundle_restores_network_and_nu, "best bundle restores model and nu"),
     (test_nu_initialised_from_validation_var, "nu initialised from validation VaR"),
+    (test_training_resumes_at_the_epoch_it_reached,
+     "training resumes at the epoch it reached"),
+    (test_completed_phase_is_not_retrained,
+     "a completed or foreign phase is never resumed"),
     (test_rollout_resume_equivalence, "batch resume reproduces the same paths"),
     (test_zero_support_fallback_is_explicit, "zero-support fallback is explicit"),
     (test_historical_paths_dates_and_labels, "historical path dates and labels"),

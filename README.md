@@ -111,9 +111,17 @@ you are actually using. Only then switch to `FULL`. Outputs land in
 
 A `FULL` run is tens of hours and will be interrupted. Leaving `RESUME_RUN_ID`
 as `None` resumes the newest unfinished run with the same `config_hash` and
-says so; completed configurations are skipped once their checkpoints verify.
-Only the configuration that was in flight is repeated. `FORCE_NEW_RUN = True`
-starts a separate run instead.
+says so. Resuming works at three levels:
+
+* completed configurations are skipped once both checkpoints verify;
+* a finished Phase 1 is reused rather than re-trained, so an interruption
+  during Phase 2 does not repeat the longer phase;
+* a phase persists model, loss, optimizer, scheduler, history, patience and
+  RNG state every `CHECKPOINT_EVERY_EPOCHS` epochs (default 25) and continues
+  from the epoch it reached.
+
+At most the epochs since the last periodic save are repeated.
+`FORCE_NEW_RUN = True` starts a separate run instead.
 
 To halve wall time across two sessions, point both at the same run and split
 the queue by generator:
