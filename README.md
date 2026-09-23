@@ -124,12 +124,24 @@ At most the epochs since the last periodic save are repeated.
 `FORCE_NEW_RUN = True` starts a separate run instead.
 
 To halve wall time across two sessions, point both at the same run and split
-the queue by generator:
+the queue by generator. `notebooks/shards/` holds ready-to-run variants with
+`RUN_MODE` and `SHARD_GENERATORS` already set — open one and run it, no editing:
 
-```python
-# session A                       # session B
-SHARD_GENERATORS = ("Heston",)    SHARD_GENERATORS = ("SBTS",)
-```
+| File | What that session does |
+|---|---|
+| `run_GBM.ipynb` | trains the 60 GBM configurations, then stops |
+| `run_Heston.ipynb` | trains the 60 Heston configurations, then stops |
+| `run_SBTS.ipynb` | trains the 60 SBTS configurations, then stops |
+| `run_Heston_SBTS.ipynb` | trains the 120 Heston and SBTS configurations, then stops |
+| `run_analysis.ipynb` | trains whatever is missing, then runs Cells 20–27 over every generator |
+
+Two sessions on separate GPUs (for example `run_Heston` and `run_SBTS`) roughly
+halve the remaining wall time; running both on one GPU does not, since the
+workload is bound by kernel-launch latency rather than compute. Stagger the
+starts by a few minutes so they do not both benchmark the GPU at once.
+
+These files are generated — edit `SBTS_CANONICAL_A100.ipynb` and re-run
+`python3 tools/make_shard_notebooks.py`.
 
 Each shard writes its own `training_results__<shard>.json`, `manifest__<shard>.json`,
 log and benchmark file, so the sessions never clobber one another; checkpoints
