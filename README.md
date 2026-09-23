@@ -107,6 +107,32 @@ you are actually using. Only then switch to `FULL`. Outputs land in
 `data/`, `generators/`, `checkpoints/`, `evaluations/`, `statistics/`,
 `diagnostics/`, `tables/`, `figures/`, `logs/` and `manifest.json`.
 
+### Resuming and running shards in parallel
+
+A `FULL` run is tens of hours and will be interrupted. Leaving `RESUME_RUN_ID`
+as `None` resumes the newest unfinished run with the same `config_hash` and
+says so; completed configurations are skipped once their checkpoints verify.
+Only the configuration that was in flight is repeated. `FORCE_NEW_RUN = True`
+starts a separate run instead.
+
+To halve wall time across two sessions, point both at the same run and split
+the queue by generator:
+
+```python
+# session A                       # session B
+SHARD_GENERATORS = ("Heston",)    SHARD_GENERATORS = ("SBTS",)
+```
+
+Each shard writes its own `training_results__<shard>.json`, `manifest__<shard>.json`,
+log and benchmark file, so the sessions never clobber one another; checkpoints
+already have unique filenames. A sharded session stops after Cell 19 —
+the audit, evaluation, statistics and tables need every generator. When the
+shards are done, run one session with `SHARD_GENERATORS = None` over the same
+run id: it merges every shard's results and produces the analysis.
+
+Generate the three path datasets before starting shards, so two sessions do not
+try to create them at once.
+
 A run is only quotable in the thesis when its manifest reports
 `publishable: true` — that requires `RUN_MODE="FULL"`, the real hashed Yahoo
 snapshot, the `paper_full` selection engine, no recorded failures and every

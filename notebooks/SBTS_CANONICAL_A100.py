@@ -150,6 +150,19 @@ RESUME_RUN_ID = None
 # only be locked in for a FULL run after the Cell-18 benchmark gate passes.
 PRECISION_MODE = "REFERENCE_FP32"     # or "A100_FAST"
 
+# A FULL run takes tens of hours and WILL be interrupted. Leaving RESUME_RUN_ID
+# as None no longer starts over: the notebook resumes the newest unfinished run
+# with the same configuration and says so. Set FORCE_NEW_RUN = True to start a
+# separate run instead.
+FORCE_NEW_RUN = False
+
+# Split the training queue across parallel sessions. None runs every generator
+# and then the full analysis. A tuple, e.g. ("Heston",), trains ONLY those
+# generators and stops after Cell 19 — point each session at the SAME
+# RESUME_RUN_ID, then run one unsharded session afterwards to do the audit,
+# evaluation, statistics and tables over all shards.
+SHARD_GENERATORS = None
+
 # Grid sizing. None => shrunk when RUN_MODE == "SMOKE", full otherwise. Set it
 # explicitly to True when analysing or re-running diagnostics over a run that
 # was produced with the smoke grid.
@@ -165,6 +178,8 @@ print(f"RUN_MODE       = {RUN_MODE}")
 print(f"PRECISION_MODE = {PRECISION_MODE}")
 print(f"RESUME_RUN_ID  = {RESUME_RUN_ID}")
 print(f"SMOKE_SIZING   = {SMOKE_SIZING} (None => derived from RUN_MODE)")
+print(f"FORCE_NEW_RUN  = {FORCE_NEW_RUN}")
+print(f"SHARD          = {SHARD_GENERATORS or 'none (all generators + analysis)'}")
 print("\nNo runtime estimate is shown until the Cell-18 smoke benchmark has "
       "measured this machine.")
 
@@ -924,18 +939,34 @@ def resolve_run_id(cfg: ExperimentConfig, resume: Optional[str]) -> str:
                     f"current={cfg.config_hash()[:12]}. Refusing to mix artifacts "
                     f"across configurations.")
         return resume
+    candidates = []
+    for rd in sorted(RUNS_ROOT.glob("*")):
+        f = rd / "config" / "config_hash.txt"
+        if f.exists() and f.read_text().strip() == cfg.config_hash():
+            candidates.append(rd.name)
+
     if cfg.run_mode in ("ANALYSIS_ONLY", "DIAGNOSTICS"):
-        candidates = []
-        for rd in sorted(RUNS_ROOT.glob("*")):
-            f = rd / "config" / "config_hash.txt"
-            if f.exists() and f.read_text().strip() == cfg.config_hash():
-                candidates.append(rd.name)
         if not candidates:
             raise FileNotFoundError(
                 f"{cfg.run_mode} needs an existing run with config_hash "
                 f"{cfg.config_hash()[:12]}; none found under {RUNS_ROOT}. "
                 f"Set RESUME_RUN_ID explicitly.")
         return candidates[-1]
+
+    # FULL/SMOKE: resume the newest matching run rather than silently starting
+    # a 180-configuration experiment over from zero after a disconnect.
+    if candidates and not FORCE_NEW_RUN:
+        chosen = candidates[-1]
+        print(f"  RESUMING the existing run {chosen} (same config_hash).\n"
+              f"  Completed configurations will be skipped after their "
+              f"checkpoints verify.\n"
+              f"  Set FORCE_NEW_RUN = True in Cell 0 to start a separate run "
+              f"instead.")
+        if len(candidates) > 1:
+            print(f"  ({len(candidates)} runs share this configuration; the "
+                  f"newest was chosen. Set RESUME_RUN_ID to pick another: "
+                  f"{candidates})")
+        return chosen
     return mint_run_id(cfg)
 
 
@@ -1088,8 +1119,16 @@ def utc_now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
 
 
+# ── Shard identity ───────────────────────────────────────────────────────────
+#  Parallel training sessions share one run directory: checkpoints have unique
+#  filenames, but the bookkeeping files must not be written by two processes at
+#  once, so they carry the shard tag. An unsharded session owns the canonical
+#  manifest.json and merges every shard's results.
+SHARD_TAG = ("__" + "-".join(sorted(SHARD_GENERATORS))) if SHARD_GENERATORS else ""
+SHARD_LABEL = "-".join(sorted(SHARD_GENERATORS)) if SHARD_GENERATORS else "all"
+
 # ── Logging ──────────────────────────────────────────────────────────────────
-LOG_PATH = PATHS["logs"] / f"run_{RUN_ID}.log"
+LOG_PATH = PATHS["logs"] / f"run_{RUN_ID}{SHARD_TAG}.log"
 LOGGER = logging.getLogger(f"sbts.{RUN_ID}")
 LOGGER.setLevel(logging.INFO)
 LOGGER.handlers.clear()
@@ -1186,7 +1225,7 @@ def atomic_write_dataframe(dst_csv, df: "pd.DataFrame") -> str:
 
 
 # ── Artifact registry / manifest ─────────────────────────────────────────────
-MANIFEST_PATH = RUN_DIR / "manifest.json"
+MANIFEST_PATH = RUN_DIR / f"manifest{SHARD_TAG}.json"
 
 
 def _load_manifest() -> Dict[str, Any]:
@@ -1202,6 +1241,7 @@ def _load_manifest() -> Dict[str, Any]:
         "schema_version": CFG.schema_version,
         "run_id": RUN_ID,
         "run_mode": CFG.run_mode,
+        "shard": SHARD_LABEL,
         "config_hash": CONFIG_HASH,
         "source_repository": SOURCE_REPOSITORY,
         "source_snapshot_commit": SOURCE_SNAPSHOT_COMMIT,
@@ -4277,8 +4317,8 @@ if not _ok:
 # ═════════════════════════════════════════════════════════════════════════════
 
 GATE_MODES = ["REFERENCE_FP32"] + (["A100_FAST"] if CUDA_AVAILABLE else [])
-BENCHMARK_PATH = PATHS["logs"] / "benchmark.csv"
-GATE_PATH = PATHS["logs"] / "gate3_precision.json"
+BENCHMARK_PATH = PATHS["logs"] / f"benchmark{SHARD_TAG}.csv"
+GATE_PATH = PATHS["logs"] / f"gate3_precision{SHARD_TAG}.json"
 
 
 def _gate_subset(t: torch.Tensor, n: int) -> torch.Tensor:
@@ -4466,7 +4506,7 @@ if RUN_MODE in ("FULL", "SMOKE") and not _skip_gate:
         _bench_rows += run_benchmark(_mode, CFG)
     BENCHMARK_TABLE = pd.DataFrame(_bench_rows)
     _h = atomic_write_dataframe(BENCHMARK_PATH, BENCHMARK_TABLE)
-    register_artifact("logs/benchmark.csv", BENCHMARK_PATH, _h)
+    register_artifact(f"logs/benchmark{SHARD_TAG}.csv", BENCHMARK_PATH, _h)
 
     GATE_VERDICTS = evaluate_gate(BENCHMARK_TABLE, CFG)
     LOCKED_PRECISION_MODE = "REFERENCE_FP32"
@@ -4510,7 +4550,7 @@ if RUN_MODE in ("FULL", "SMOKE") and not _skip_gate:
         "evaluated_utc": utc_now(),
     }
     atomic_write_json(GATE_PATH, GATE_REPORT)
-    register_artifact("logs/gate3_precision.json", GATE_PATH)
+    register_artifact(f"logs/gate3_precision{SHARD_TAG}.json", GATE_PATH)
     MANIFEST["gate_3_precision"] = {"locked_precision_mode": LOCKED_PRECISION_MODE,
                                     "verdicts": GATE_VERDICTS}
     save_manifest()
@@ -4557,23 +4597,61 @@ elif RUN_MODE not in ("FULL", "SMOKE"):
 #  No result is fabricated, and no seed is ever relabelled.
 # ═════════════════════════════════════════════════════════════════════════════
 
-RESULTS_PATH = PATHS["summaries"] / "training_results.json"
+class ShardTrainingComplete(RuntimeError):
+    """Raised to stop a sharded session after training — not a failure."""
+
+
+RESULTS_PATH = PATHS["summaries"] / f"training_results{SHARD_TAG}.json"
+
+
+def _read_results_file(path: Path) -> Optional[Dict[str, Any]]:
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            stored = json.load(f)
+    except Exception as exc:                                 # noqa: BLE001
+        add_warning(f"unreadable training results {path.name} ({exc!r})")
+        return None
+    if stored.get("config_hash") != CONFIG_HASH:
+        quarantine(path, "training results carry a different config_hash")
+        return None
+    return stored
 
 
 def load_training_results() -> Dict[str, Any]:
-    if RESULTS_PATH.exists():
-        with open(RESULTS_PATH, "r", encoding="utf-8") as f:
-            stored = json.load(f)
-        if stored.get("config_hash") == CONFIG_HASH:
-            return stored
-        quarantine(RESULTS_PATH, "training results carry a different config_hash")
-    return {"schema_version": CFG.schema_version, "config_hash": CONFIG_HASH,
-            "run_id": RUN_ID, "runs": {}}
+    """This shard's own results, merged with every other shard's.
+
+    Each session writes only its own file, so parallel sessions never clobber
+    one another. An unsharded session sees all of them, which is what makes
+    the audit and the statistics complete.
+    """
+    merged = {"schema_version": CFG.schema_version, "config_hash": CONFIG_HASH,
+              "run_id": RUN_ID, "shard": SHARD_LABEL, "runs": {}}
+    own = _read_results_file(RESULTS_PATH)
+    for path in sorted(PATHS["summaries"].glob("training_results*.json")):
+        if path == RESULTS_PATH:
+            continue
+        other = _read_results_file(path)
+        if other:
+            merged["runs"].update(other.get("runs", {}))
+            merged.setdefault("merged_from", []).append(path.name)
+    if own:
+        merged["runs"].update(own.get("runs", {}))
+    return merged
 
 
 def save_training_results(results: Dict[str, Any]) -> None:
+    """Persist ONLY the runs this session owns, into this shard's own file."""
     results["updated_utc"] = utc_now()
-    atomic_write_json(RESULTS_PATH, results)
+    if SHARD_GENERATORS:
+        own = {k: v for k, v in results["runs"].items()
+               if v.get("generator") in SHARD_GENERATORS}
+        atomic_write_json(RESULTS_PATH,
+                          {**{k: v for k, v in results.items() if k != "runs"},
+                           "runs": own})
+    else:
+        atomic_write_json(RESULTS_PATH, results)
 
 
 def run_is_complete(entry: Optional[Dict[str, Any]], spec: Dict[str, Any]) -> bool:
@@ -4597,6 +4675,14 @@ def run_is_complete(entry: Optional[Dict[str, Any]], spec: Dict[str, Any]) -> bo
 def execute_queue(cfg: ExperimentConfig) -> Dict[str, Any]:
     results = load_training_results()
     queue = canonical_run_queue(cfg)
+    if SHARD_GENERATORS:
+        unknown = set(SHARD_GENERATORS) - set(GENERATORS)
+        if unknown:
+            raise ValueError(f"SHARD_GENERATORS names unknown generators: {unknown}")
+        queue = [q for q in queue if q["generator"] in SHARD_GENERATORS]
+        print(f"SHARD {SHARD_LABEL}: this session trains "
+              f"{sorted(SHARD_GENERATORS)} only "
+              f"({len(queue)} of {cfg.n_configurations} configurations).\n")
     data_hashes = {"calibration_returns": CALIBRATION_INPUT_HASH,
                    **{f"generator_{g}": DATA_HASHES[f"generator_{g}"] for g in GENERATORS},
                    **{f"historical_{r}": DATA_HASHES[f"historical_{r}"]
@@ -4717,6 +4803,9 @@ def run_pipeline_training(cfg: ExperimentConfig) -> Dict[str, Any]:
 
 
 TRAINING_RESULTS = run_pipeline_training(CFG)
+MANIFEST["shard"] = SHARD_LABEL
+MANIFEST["shard_generators"] = (sorted(SHARD_GENERATORS) if SHARD_GENERATORS
+                                else list(GENERATORS))
 _statuses = pd.Series([v.get("status") for v in TRAINING_RESULTS["runs"].values()])
 _n_complete = int((_statuses == "complete").sum())
 _n_failed = int((_statuses == "failed").sum())
@@ -4735,6 +4824,22 @@ if _n_failed:
     for _k, _v in TRAINING_RESULTS["runs"].items():
         if _v.get("status") == "failed":
             print(f"    {_k}  retries={_v.get('retries')}")
+
+if SHARD_GENERATORS:
+    print(f"\n{'=' * 78}")
+    print(f"  SHARD {SHARD_LABEL} FINISHED TRAINING — this is the expected "
+          f"stopping point.")
+    print(f"{'=' * 78}")
+    print(f"  Results written to : {RESULTS_PATH.name}")
+    print(f"  Run directory      : {RUN_DIR}")
+    print(f"\n  The audit, evaluation, statistics, diagnostics and tables need "
+          f"every\n  generator, so they are NOT run here. When all shards have "
+          f"finished,\n  start one more session with SHARD_GENERATORS = None "
+          f"and the same\n  RESUME_RUN_ID; it merges every shard's results and "
+          f"runs Cells 20-27.")
+    raise ShardTrainingComplete(
+        f"Shard {SHARD_LABEL} finished training. This stop is expected — run an "
+        f"unsharded session over the same run id to produce the analysis.")
 
 # ---- notebook cell 29 --------------------------------------------------
 # ═════════════════════════════════════════════════════════════════════════════
@@ -6085,6 +6190,9 @@ MANIFEST.update({
     "evaluation_artifacts": [k for k in MANIFEST["artifacts"] if k.startswith("evaluations/")],
     "diagnostics_artifacts": [k for k in MANIFEST["artifacts"] if k.startswith("diagnostics/")],
     "n_artifacts": len(MANIFEST["artifacts"]),
+    "shard_manifests": sorted(p.name for p in RUN_DIR.glob("manifest__*.json")),
+    "shard_results": sorted(p.name for p in
+                            PATHS["summaries"].glob("training_results*.json")),
     "selection": {"h_star": H_STAR, "k_star": K_STAR,
                   "engine": SELECTION_META["engine"],
                   "publishable": SELECTION_META.get("publishable")},
