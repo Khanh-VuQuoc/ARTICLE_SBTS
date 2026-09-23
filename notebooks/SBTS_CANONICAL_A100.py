@@ -4413,10 +4413,54 @@ def evaluate_gate(df: "pd.DataFrame", cfg: ExperimentConfig) -> Dict[str, Any]:
     return verdicts
 
 
+def _gate_cache_is_usable() -> bool:
+    """Reuse a gate result measured on THIS machine for THIS configuration.
+
+    A 180-configuration run will be interrupted and resumed several times on
+    Colab; re-benchmarking the same GPU every restart costs minutes and can
+    only produce the same verdict. The cache is keyed by config_hash, GPU name
+    and the requested mode, so any of those changing forces a fresh benchmark.
+    """
+    if not (BENCHMARK_PATH.exists() and GATE_PATH.exists()):
+        return False
+    try:
+        with open(GATE_PATH, "r", encoding="utf-8") as f:
+            rep = json.load(f)
+    except Exception:                                        # noqa: BLE001
+        return False
+    ok, _ = cache_is_valid(rep, extra={"gpu_name": GPU_NAME,
+                                       "requested_mode": PRECISION_MODE})
+    return ok
+
+
 if RUN_MODE in ("FULL", "SMOKE"):
+    _saved_mode = PRECISION_MODE
+    if _gate_cache_is_usable():
+        with open(GATE_PATH, "r", encoding="utf-8") as _f:
+            GATE_REPORT = json.load(_f)
+        BENCHMARK_TABLE = pd.read_csv(BENCHMARK_PATH)
+        GATE_VERDICTS = GATE_REPORT["verdicts"]
+        LOCKED_PRECISION_MODE = GATE_REPORT["locked_precision_mode"]
+        PRECISION_MODE = LOCKED_PRECISION_MODE
+        PRECISION_FLAGS = apply_precision_mode(PRECISION_MODE)
+        MANIFEST["gate_3_precision"] = {
+            "locked_precision_mode": LOCKED_PRECISION_MODE,
+            "verdicts": GATE_VERDICTS, "reused_from_cache": True}
+        save_manifest()
+        print(f"Gate 3 reused from this run's cached benchmark "
+              f"(GPU {GPU_NAME}, measured {GATE_REPORT['evaluated_utc']}).")
+        print(f"  locked precision mode : {LOCKED_PRECISION_MODE}")
+        print(f"  runtime estimate      : "
+              f"{GATE_REPORT['runtime_estimate_hours_full_run']:.1f} GPU-hours "
+              f"for a full run")
+        print("  Delete logs/gate3_precision.json to force a fresh benchmark.")
+        _skip_gate = True
+    else:
+        _skip_gate = False
+
+if RUN_MODE in ("FULL", "SMOKE") and not _skip_gate:
     print(f"Benchmark modes: {GATE_MODES}\n")
     _bench_rows = []
-    _saved_mode = PRECISION_MODE
     for _mode in GATE_MODES:
         print(f"  [{_mode}]")
         _bench_rows += run_benchmark(_mode, CFG)
@@ -4446,6 +4490,7 @@ if RUN_MODE in ("FULL", "SMOKE"):
 
     GATE_REPORT = {
         "schema_version": CFG.schema_version, "config_hash": CONFIG_HASH,
+        "gpu_name": GPU_NAME,
         "modes_benchmarked": GATE_MODES,
         "requested_mode": _saved_mode,
         "locked_precision_mode": LOCKED_PRECISION_MODE,
@@ -4485,7 +4530,7 @@ if RUN_MODE in ("FULL", "SMOKE"):
     print(f"  ({_sec_per_epoch:.2f} s/epoch measured at "
           f"{GATE_REPORT['gate_train_paths']:,} training paths, scaled to "
           f"{CFG.n_train:,} and {CFG.n_configurations} configurations)")
-else:
+elif RUN_MODE not in ("FULL", "SMOKE"):
     LOCKED_PRECISION_MODE = PRECISION_MODE
     BENCHMARK_TABLE = pd.DataFrame()
     GATE_VERDICTS = {}
@@ -4753,7 +4798,7 @@ print(f"  seed mismatches        : {len(_seed_bad)}")
 print(f"  config-hash mismatches : {len(_cfg_bad)}")
 if len(_seed_bad):
     print(_seed_bad[["run_key", "phase", "seed"]].to_string(index=False))
-    add_failure("checkpoint seed does not match its run key", 
+    add_failure("checkpoint seed does not match its run key",
                 {"rows": _seed_bad["run_key"].tolist()})
     raise RuntimeError("Seed identity audit failed — a checkpoint records a "
                        "different seed from the one its run key claims.")
@@ -6055,7 +6100,7 @@ for _candidate in ("SBTS_CANONICAL_A100.ipynb",
     _p = Path(_candidate)
     if _p.exists():
         shutil.copy2(_p, PATHS["notebook_snapshot"] / _p.name)
-        register_artifact("notebook_snapshot/notebook", 
+        register_artifact("notebook_snapshot/notebook",
                           PATHS["notebook_snapshot"] / _p.name)
         break
 
