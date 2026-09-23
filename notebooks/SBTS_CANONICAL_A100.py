@@ -961,19 +961,39 @@ def resolve_run_id(cfg: ExperimentConfig, resume: Optional[str]) -> str:
                 f"Set RESUME_RUN_ID explicitly.")
         return candidates[-1]
 
-    # FULL/SMOKE: resume the newest matching run rather than silently starting
-    # a 180-configuration experiment over from zero after a disconnect.
+    # FULL/SMOKE: resume rather than silently start a 180-configuration
+    # experiment over from zero. When several runs share the configuration —
+    # e.g. an older notebook minted a fresh run after a disconnect — the one
+    # with the MOST completed configurations wins, so no finished work is
+    # abandoned; ties go to the newest.
     if candidates and not FORCE_NEW_RUN:
-        chosen = candidates[-1]
+        def _n_complete(run_name: str) -> int:
+            done = set()
+            for f in (RUNS_ROOT / run_name / "evaluations" / "summaries"
+                      ).glob("training_results*.json"):
+                try:
+                    with open(f, "r", encoding="utf-8") as fh:
+                        runs = json.load(fh).get("runs", {})
+                    done |= {k for k, v in runs.items()
+                             if v.get("status") == "complete"}
+                except Exception:                            # noqa: BLE001
+                    pass
+            return len(done)
+
+        progress = [(name, _n_complete(name)) for name in candidates]
+        chosen = max(progress, key=lambda t: (t[1], t[0]))[0]
         print(f"  RESUMING the existing run {chosen} (same config_hash).\n"
               f"  Completed configurations will be skipped after their "
               f"checkpoints verify.\n"
               f"  Set FORCE_NEW_RUN = True in Cell 0 to start a separate run "
               f"instead.")
         if len(candidates) > 1:
-            print(f"  ({len(candidates)} runs share this configuration; the "
-                  f"newest was chosen. Set RESUME_RUN_ID to pick another: "
-                  f"{candidates})")
+            print(f"  {len(candidates)} runs share this configuration; the one "
+                  f"with the most completed\n  configurations was chosen. Set "
+                  f"RESUME_RUN_ID to pick another:")
+            for name, n in progress:
+                print(f"    {'->' if name == chosen else '  '} {name}  "
+                      f"({n} complete)")
         return chosen
     return mint_run_id(cfg)
 
@@ -2741,6 +2761,13 @@ if not _reuse_sel:
 
 H_STAR = float(SELECTION_META["h_star"])
 K_STAR = int(SELECTION_META["k_star"])
+# A selection cached by an earlier notebook version lacks these flags; derive
+# them from the chosen values so the boundary disclosure still fires.
+_k_grid_eff = tuple(k for k in CFG.k_grid if k <= CFG.horizon - 1)
+SELECTION_META.setdefault("h_at_grid_boundary",
+                          H_STAR in (min(CFG.h_grid), max(CFG.h_grid)))
+SELECTION_META.setdefault("k_at_grid_boundary",
+                          K_STAR in (min(_k_grid_eff), max(_k_grid_eff)))
 
 print(f"\n  chronological split : train refs [{SELECTION_META['split']['train_reference_first']}, "
       f"{SELECTION_META['split']['train_reference_last']}] "

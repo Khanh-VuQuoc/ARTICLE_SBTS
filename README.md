@@ -123,27 +123,26 @@ says so. Resuming works at three levels:
 At most the epochs since the last periodic save are repeated.
 `FORCE_NEW_RUN = True` starts a separate run instead.
 
-To halve wall time, run two sessions side by side. `notebooks/shards/` holds
-ready-to-run notebooks with the knobs already set — open one per session and
-run it, nothing to edit:
+To split the work, `notebooks/shards/` holds two ready-to-run notebooks — the
+same split as the original `article_gbm` / `article_heston_sbts` pair. Open
+each in its own session and run it; nothing to edit:
 
-| File | That session trains |
+| File | Trains |
 |---|---|
-| `run_1_Heston.ipynb` | the 60 Heston configurations |
-| `run_2_SBTS.ipynb` | the 60 SBTS configurations |
 | `run_GBM.ipynb` | the 60 GBM configurations |
-| `run_analysis_only.ipynb` | nothing new — analysis fallback, see below |
+| `run_Heston_SBTS.ipynb` | the 120 Heston and SBTS configurations |
 
-Both sessions join the same run automatically. **Whichever finishes last
-continues straight into the audit, evaluation, statistics, diagnostics and
-tables**, so there is no separate analysis step; the other stops after Cell 19
-with `ShardTrainingComplete`, which is the expected end and not an error.
-`run_analysis_only.ipynb` exists only as a fallback, for when the last session
-was interrupted before it reached the analysis.
+Both join the existing run automatically — the one with the same `config_hash`
+and the most completed configurations. **Whichever finishes last continues
+straight into the audit, evaluation, statistics, diagnostics and tables**, so
+there is no third notebook; the other stops after Cell 19 with
+`ShardTrainingComplete`, the expected end and not an error. If the last one is
+interrupted before the analysis, run either notebook again: it finds every
+configuration complete and goes straight to the analysis.
 
-Two sessions help only on separate GPUs; on one GPU they contend, since the
-workload is bound by kernel-launch latency rather than compute. Stagger the
-starts by a few minutes so they do not both benchmark the GPU at once.
+Stop any session still running an older copy of the notebook first, or two
+processes will train the same configurations. Two sessions shorten wall time
+only on separate GPUs, and only if the remaining work is split between them.
 
 These files are generated — edit `SBTS_CANONICAL_A100.ipynb` and re-run
 `python3 tools/make_shard_notebooks.py`.
