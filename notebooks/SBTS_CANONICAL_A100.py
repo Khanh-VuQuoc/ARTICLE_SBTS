@@ -3656,7 +3656,9 @@ print(f"  filename pattern  : "
 #      history, patience and RNG state every CHECKPOINT_EVERY_EPOCHS epochs, so
 #      an interrupted session continues from the epoch it reached instead of
 #      restarting the configuration. When the RNG state is restored in full the
-#      continuation follows the original random stream; that is recorded.
+#      continuation follows the original random stream; that is recorded. A
+#      finished Phase 1 is reused only together with the RNG state it ended
+#      in, so Phase 2 matches an uninterrupted run; otherwise it is re-trained.
 #   6. FAILURE PROTOCOL. Non-finite loss/parameters/gradients, a checkpoint
 #      that will not reload, a non-finite metric, a sample-count mismatch or a
 #      hash mismatch mark the run failed. Retries reuse the SAME seed and the
@@ -3719,6 +3721,27 @@ def _progress_payload(spec_key: str, phase: str, epoch: int, best_val: float,
             "patience_counter": int(patience_counter), "history": history,
             "best_bundle": best_bundle, "last_bundle": last_bundle,
             "phase_complete": bool(complete), "saved_utc": utc_now()}
+
+
+def _phase1_final_rng(path: Path, spec_key: str) -> Optional[Dict[str, Any]]:
+    """The RNG state a FINISHED Phase 1 ended in, from its progress file.
+
+    Phase 2 of an uninterrupted run draws its first minibatch order from
+    exactly this state: nothing between the phases consumes randomness. Both
+    the current progress format and the legacy one (written only after the
+    phase had finished) carry it in last_bundle."""
+    if not Path(path).exists():
+        return None
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=False)
+    except Exception:                                        # noqa: BLE001
+        return None
+    if (payload.get("run_key") != spec_key or payload.get("phase") != "mse"
+            or payload.get("config_hash") != CONFIG_HASH):
+        return None
+    if payload.get("phase_complete") is False:              # not a finished phase
+        return None
+    return (payload.get("last_bundle") or {}).get("rng_state")
 
 
 def _load_progress(path: Optional[Path], spec_key: str,
@@ -3943,12 +3966,29 @@ def train_configuration(spec: Dict[str, Any], cfg: ExperimentConfig,
                                                  "mse", "last")
     p1_done = None
     if p1_path.exists():
-        try:                       # a finished Phase 1 is never re-trained
+        try:                       # a finished Phase 1 is not re-trained ...
             p1_done = verify_checkpoint(p1_path)
         except Exception as exc:                             # noqa: BLE001
             add_warning(f"{spec['run_key']} mse: existing checkpoint failed "
                         f"verification ({exc!r}); Phase 1 will be re-run")
             p1_done = None
+
+    if p1_done is not None:
+        # ... provided Phase 2 can start from exactly the random state an
+        # uninterrupted run would have: the one Phase 1 finished in. Without it
+        # Phase 2 would draw different minibatch orders and give a different
+        # result, so in that case Phase 1 is re-trained from the seed instead.
+        final_rng = _phase1_final_rng(p1_progress, spec["run_key"])
+        if final_rng is None or not restore_rng_state(final_rng):
+            add_warning(f"{spec['run_key']} mse: finished Phase 1 found, but not "
+                        f"the random state it ended in; Phase 1 is re-trained so "
+                        f"the result matches an uninterrupted run")
+            p1_done = None
+            seed_all(seed)                    # start exactly as a fresh run does
+            net = HedgingNetwork(d=cfg.d, hidden=cfg.hidden_sizes,
+                                 output_gain=cfg.init_output_gain,
+                                 v0_init=cfg.v0_init).to(DEVICE)
+            model_spec = net.spec()
 
     if p1_done is not None:
         net.load_state_dict({k: v.to(DEVICE)
@@ -4468,6 +4508,74 @@ def test_completed_phase_is_not_retrained():
     path.unlink(missing_ok=True)
 
 
+def test_phase1_reuse_matches_uninterrupted_run():
+    """A session interrupted between Phase 1 and Phase 2 must, on re-run, give
+    exactly the result of a run that was never interrupted — both when it
+    reuses the finished Phase 1 and when it has to re-train it."""
+    saved = PATHS["checkpoints"]
+    root = TEST_SCRATCH / "phase1_reuse"
+
+    def _paths(n, t, seed, vol=0.05):
+        g = torch_generator(DEVICE, seed, 77)
+        r = torch.randn(n, t, CFG.d, generator=g, device=DEVICE) * vol
+        s = torch.ones(n, t + 1, CFG.d, device=DEVICE)
+        s[:, 1:, :] = torch.exp(torch.cumsum(r, dim=1))
+        return s
+
+    # The data must make Phase 2 actually TRAIN the network. On flat paths no
+    # residual clears nu, the network gets zero gradient, the minibatch order
+    # stops mattering, and this test would pass with the bug still present.
+    # alpha = 0.5 and volatile paths put half of the residuals above nu.
+    cfg = dataclasses.replace(CFG, batch_size=8, mse_epochs=4, cvar_epochs=4,
+                              mse_patience=4, cvar_patience=4,
+                              cvar_alpha=0.5, cvar_lr=1e-2)
+    S = {"train": _paths(32, 6, 21), "val": _paths(16, 6, 22),
+         "test": _paths(16, 6, 23)}
+    hist = {r: _paths(8, 6, 30 + i) for i, r in enumerate(cfg.regime_names)}
+    opt_name = "asian_worst_of_put"
+    spec = {"generator": "GBM", "option": opt_name, "kappa": 1.05,
+            "seed": 5, "run_key": run_key("GBM", opt_name, 1.05, 5)}
+    ck = lambda phase, kind: (root / "GBM" / checkpoint_filename(
+        "GBM", opt_name, 1.05, 5, phase, kind))
+
+    def _drop(phase, kinds=("best", "last")):
+        for kind in kinds:
+            ck(phase, kind).unlink(missing_ok=True)
+            ck(phase, kind).with_suffix(".json").unlink(missing_ok=True)
+
+    def _phase2(res):
+        c = res["phases"]["cvar"]
+        return (c["best_val_loss"], c["best_epoch"], c["metrics"]["std"],
+                c["metrics"]["cvar95"], c["nu"])
+
+    try:
+        PATHS["checkpoints"] = root
+        (root / "GBM").mkdir(parents=True, exist_ok=True)
+        ref = train_configuration(spec, cfg, {"GBM": S}, hist, {}, verbose_every=0)
+
+        # Interrupted after Phase 1: its checkpoints are there, Phase 2's are not.
+        _drop("cvar")
+        reused = train_configuration(spec, cfg, {"GBM": S}, hist, {}, verbose_every=0)
+        assert reused["phases"]["mse"].get("reused_existing_checkpoint"), \
+            "the finished Phase 1 was not reused"
+        assert _phase2(reused) == _phase2(ref), (
+            f"Phase 2 after reusing Phase 1 differs from the uninterrupted run: "
+            f"{_phase2(reused)} vs {_phase2(ref)}")
+
+        # Same, but the record of Phase 1's final random state is gone: Phase 1
+        # must be re-trained rather than reused, so the result still matches.
+        _drop("cvar")
+        _drop("mse", kinds=("last",))
+        retrained = train_configuration(spec, cfg, {"GBM": S}, hist, {}, verbose_every=0)
+        assert not retrained["phases"]["mse"].get("reused_existing_checkpoint"), \
+            "Phase 1 was reused without the random state needed to continue it"
+        assert _phase2(retrained) == _phase2(ref), (
+            f"re-trained configuration differs from the uninterrupted run: "
+            f"{_phase2(retrained)} vs {_phase2(ref)}")
+    finally:
+        PATHS["checkpoints"] = saved
+
+
 def test_rollout_resume_equivalence():
     """A batch regenerated from (seed, batch_index) must be bit-identical."""
     X = X_REF_T[:64, :6, :]
@@ -4549,6 +4657,8 @@ INTEGRATION_TESTS = [
      "training resumes at the epoch it reached"),
     (test_completed_phase_is_not_retrained,
      "a completed or foreign phase is never resumed"),
+    (test_phase1_reuse_matches_uninterrupted_run,
+     "reusing a finished Phase 1 matches an uninterrupted run"),
     (test_rollout_resume_equivalence, "batch resume reproduces the same paths"),
     (test_zero_support_fallback_is_explicit, "zero-support fallback is explicit"),
     (test_historical_paths_dates_and_labels, "historical path dates and labels"),

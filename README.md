@@ -114,8 +114,10 @@ as `None` resumes the newest unfinished run with the same `config_hash` and
 says so. Resuming works at three levels:
 
 * completed configurations are skipped once both checkpoints verify;
-* a finished Phase 1 is reused rather than re-trained, so an interruption
-  during Phase 2 does not repeat the longer phase;
+* a finished Phase 1 is reused rather than re-trained, together with the
+  random state it ended in, so an interruption during Phase 2 does not repeat
+  the longer phase and still gives exactly the uninterrupted result (without
+  that state, Phase 1 is re-trained instead);
 * a phase persists model, loss, optimizer, scheduler, history, patience and
   RNG state every `CHECKPOINT_EVERY_EPOCHS` epochs (default 25) and continues
   from the epoch it reached.
