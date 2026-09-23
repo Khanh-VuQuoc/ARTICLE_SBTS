@@ -5062,20 +5062,37 @@ if _n_failed:
             print(f"    {_k}  retries={_v.get('retries')}")
 
 if SHARD_GENERATORS:
+    # The analysis needs every generator, so a shard runs it only when it is
+    # the LAST one to finish. Whichever session finishes last therefore carries
+    # straight on into Cells 20-27, and no separate analysis session is needed.
+    _outstanding = [s["run_key"] for s in canonical_run_queue(CFG)
+                    if (TRAINING_RESULTS["runs"].get(s["run_key"], {}).get("status")
+                        != "complete")]
     print(f"\n{'=' * 78}")
-    print(f"  SHARD {SHARD_LABEL} FINISHED TRAINING — this is the expected "
-          f"stopping point.")
+    if _outstanding:
+        print(f"  SHARD {SHARD_LABEL} FINISHED TRAINING — expected stopping point.")
+        print(f"{'=' * 78}")
+        print(f"  Results written to : {RESULTS_PATH.name}")
+        print(f"  Run directory      : {RUN_DIR}")
+        print(f"\n  {len(_outstanding)} configurations are still outstanding in "
+              f"other shards, so the\n  analysis is not run here. Whichever "
+              f"session finishes LAST will run it\n  automatically — you do not "
+              f"need a separate analysis session.")
+        print(f"  Still outstanding, first few: {_outstanding[:5]}")
+        raise ShardTrainingComplete(
+            f"Shard {SHARD_LABEL} finished training; {len(_outstanding)} "
+            f"configurations remain in other shards. This stop is expected.")
+    print(f"  SHARD {SHARD_LABEL} FINISHED, AND IT IS THE LAST ONE.")
     print(f"{'=' * 78}")
-    print(f"  Results written to : {RESULTS_PATH.name}")
-    print(f"  Run directory      : {RUN_DIR}")
-    print(f"\n  The audit, evaluation, statistics, diagnostics and tables need "
-          f"every\n  generator, so they are NOT run here. When all shards have "
-          f"finished,\n  start one more session with SHARD_GENERATORS = None "
-          f"and the same\n  RESUME_RUN_ID; it merges every shard's results and "
-          f"runs Cells 20-27.")
-    raise ShardTrainingComplete(
-        f"Shard {SHARD_LABEL} finished training. This stop is expected — run an "
-        f"unsharded session over the same run id to produce the analysis.")
+    print(f"  All {CFG.n_configurations} configurations are complete, so this "
+          f"session continues\n  into the audit, evaluation, statistics, "
+          f"diagnostics and tables.")
+    # The canonical manifest belongs to the analysis, not to a shard.
+    MANIFEST_PATH = RUN_DIR / "manifest.json"
+    MANIFEST = _load_manifest()
+    MANIFEST["shard"] = "all"
+    MANIFEST["analysis_run_by_shard"] = SHARD_LABEL
+    save_manifest()
 
 # ---- notebook cell 29 --------------------------------------------------
 # ═════════════════════════════════════════════════════════════════════════════

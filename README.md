@@ -123,35 +123,30 @@ says so. Resuming works at three levels:
 At most the epochs since the last periodic save are repeated.
 `FORCE_NEW_RUN = True` starts a separate run instead.
 
-To halve wall time across two sessions, point both at the same run and split
-the queue by generator. `notebooks/shards/` holds ready-to-run variants with
-`RUN_MODE` and `SHARD_GENERATORS` already set — open one and run it, no editing:
+To halve wall time, run two sessions side by side. `notebooks/shards/` holds
+ready-to-run notebooks with the knobs already set — open one per session and
+run it, nothing to edit:
 
-| File | What that session does |
+| File | That session trains |
 |---|---|
-| `run_GBM.ipynb` | trains the 60 GBM configurations, then stops |
-| `run_Heston.ipynb` | trains the 60 Heston configurations, then stops |
-| `run_SBTS.ipynb` | trains the 60 SBTS configurations, then stops |
-| `run_Heston_SBTS.ipynb` | trains the 120 Heston and SBTS configurations, then stops |
-| `run_analysis.ipynb` | trains whatever is missing, then runs Cells 20–27 over every generator |
+| `run_1_Heston.ipynb` | the 60 Heston configurations |
+| `run_2_SBTS.ipynb` | the 60 SBTS configurations |
+| `run_GBM.ipynb` | the 60 GBM configurations |
+| `run_analysis_only.ipynb` | nothing new — analysis fallback, see below |
 
-Two sessions on separate GPUs (for example `run_Heston` and `run_SBTS`) roughly
-halve the remaining wall time; running both on one GPU does not, since the
+Both sessions join the same run automatically. **Whichever finishes last
+continues straight into the audit, evaluation, statistics, diagnostics and
+tables**, so there is no separate analysis step; the other stops after Cell 19
+with `ShardTrainingComplete`, which is the expected end and not an error.
+`run_analysis_only.ipynb` exists only as a fallback, for when the last session
+was interrupted before it reached the analysis.
+
+Two sessions help only on separate GPUs; on one GPU they contend, since the
 workload is bound by kernel-launch latency rather than compute. Stagger the
 starts by a few minutes so they do not both benchmark the GPU at once.
 
 These files are generated — edit `SBTS_CANONICAL_A100.ipynb` and re-run
 `python3 tools/make_shard_notebooks.py`.
-
-Each shard writes its own `training_results__<shard>.json`, `manifest__<shard>.json`,
-log and benchmark file, so the sessions never clobber one another; checkpoints
-already have unique filenames. A sharded session stops after Cell 19 —
-the audit, evaluation, statistics and tables need every generator. When the
-shards are done, run one session with `SHARD_GENERATORS = None` over the same
-run id: it merges every shard's results and produces the analysis.
-
-Generate the three path datasets before starting shards, so two sessions do not
-try to create them at once.
 
 A run is only quotable in the thesis when its manifest reports
 `publishable: true` — that requires `RUN_MODE="FULL"`, the real hashed Yahoo
