@@ -168,11 +168,12 @@ SHARD_GENERATORS = None
 # matter how far an earlier run already got through the queue.
 SHARD_SEEDS = None
 
-# Only join a run whose every session so far ran on this GPU (a substring of
-# the CUDA device name, e.g. "T4"). A run trained partly on another GPU is
-# skipped when auto-resuming, so e.g. an older A100 run is never mixed into an
-# all-T4 experiment. None joins any run with the same config_hash.
-JOIN_ONLY_RUNS_ON_GPU = None
+# Every configuration must be trained on this GPU (a substring of the CUDA
+# device name, e.g. "T4"). A configuration recorded complete whose checkpoint
+# was trained on another GPU (e.g. an earlier A100 session) is trained again
+# from scratch in this session; its old checkpoints are quarantined, not
+# deleted. None accepts any GPU.
+REQUIRE_TRAINED_ON_GPU = None
 
 # How often a training phase persists enough state to continue from the exact
 # epoch it reached. 0 disables it. This is an execution detail, not an
@@ -198,7 +199,7 @@ print(f"SMOKE_SIZING   = {SMOKE_SIZING} (None => derived from RUN_MODE)")
 print(f"FORCE_NEW_RUN  = {FORCE_NEW_RUN}")
 print(f"SHARD          = generators={SHARD_GENERATORS or 'all'}  "
       f"seeds={SHARD_SEEDS if SHARD_SEEDS is not None else 'all'}")
-print(f"JOIN_ONLY_RUNS_ON_GPU = {JOIN_ONLY_RUNS_ON_GPU}")
+print(f"REQUIRE_TRAINED_ON_GPU = {REQUIRE_TRAINED_ON_GPU}")
 print(f"CHECKPOINT_EVERY_EPOCHS = {CHECKPOINT_EVERY_EPOCHS}"
       f"{' (epoch-level resume disabled)' if not CHECKPOINT_EVERY_EPOCHS else ''}")
 print("\nNo runtime estimate is shown until the Cell-18 smoke benchmark has "
@@ -975,27 +976,6 @@ def resolve_run_id(cfg: ExperimentConfig, resume: Optional[str]) -> str:
         if f.exists() and f.read_text().strip() == cfg.config_hash():
             candidates.append(rd.name)
 
-    if JOIN_ONLY_RUNS_ON_GPU and cfg.run_mode in ("FULL", "SMOKE"):
-        def _gpus(run_name: str) -> list:
-            names = []
-            for f in (RUNS_ROOT / run_name / "environment").glob("gpu_info*.txt"):
-                try:
-                    names.append(json.loads(f.read_text()).get("gpu_name"))
-                except Exception:                            # noqa: BLE001
-                    names.append(None)
-            return names
-
-        kept = []
-        for name in candidates:
-            gpus = _gpus(name)
-            if gpus and all(g and JOIN_ONLY_RUNS_ON_GPU in g for g in gpus):
-                kept.append(name)
-            else:
-                print(f"  skipping run {name}: not trained only on "
-                      f"{JOIN_ONLY_RUNS_ON_GPU} (sessions so far: "
-                      f"{sorted(set(map(str, gpus))) or 'unknown'})")
-        candidates = kept
-
     if cfg.run_mode in ("ANALYSIS_ONLY", "DIAGNOSTICS"):
         if not candidates:
             raise FileNotFoundError(
@@ -1050,9 +1030,7 @@ def resolve_run_id(cfg: ExperimentConfig, resume: Optional[str]) -> str:
     if _is_shard and not FORCE_NEW_RUN:
         raise RuntimeError(
             f"This notebook is one shard of a split run, but it found NO existing "
-            f"run with config_hash {cfg.config_hash()[:8]}"
-            f"{' trained only on ' + JOIN_ONLY_RUNS_ON_GPU if JOIN_ONLY_RUNS_ON_GPU else ''}"
-            f" under\n  {RUNS_ROOT}\n"
+            f"run with config_hash {cfg.config_hash()[:8]} under\n  {RUNS_ROOT}\n"
             f"Nothing has been trained. Most likely this session sees a different "
             f"Google Drive from the other session (a different Google account). "
             f"Make both sessions see the same ARTICLE_SBTS folder, then re-run. "
@@ -5126,7 +5104,13 @@ def save_training_results(results: Dict[str, Any]) -> None:
         atomic_write_json(RESULTS_PATH, results)
 
 
-def run_is_complete(entry: Optional[Dict[str, Any]], spec: Dict[str, Any]) -> bool:
+# run keys whose complete checkpoints came from a GPU REQUIRE_TRAINED_ON_GPU
+# rejects; execute_queue trains them again from scratch.
+WRONG_GPU_RUNS: Dict[str, str] = {}
+
+
+def run_is_complete(entry: Optional[Dict[str, Any]], spec: Dict[str, Any],
+                    check_gpu: bool = False) -> bool:
     if not entry or entry.get("status") != "complete":
         return False
     for phase in CFG.test_phases:
@@ -5136,12 +5120,30 @@ def run_is_complete(entry: Optional[Dict[str, Any]], spec: Dict[str, Any]) -> bo
         if not path.exists():
             return False
         try:
-            verify_checkpoint(path)
+            ckpt = verify_checkpoint(path)
         except Exception as exc:                             # noqa: BLE001
             add_warning(f"{spec['run_key']} {phase}: checkpoint failed verification "
                         f"on resume ({exc!r}); the run will be re-executed")
             return False
+        if check_gpu and REQUIRE_TRAINED_ON_GPU:
+            gpu = (ckpt.get("environment") or {}).get("gpu_name")
+            if not gpu or REQUIRE_TRAINED_ON_GPU not in gpu:
+                WRONG_GPU_RUNS[spec["run_key"]] = str(gpu)
+                return False
     return True
+
+
+def discard_wrong_gpu_run(spec: Dict[str, Any]) -> None:
+    """Move every checkpoint of a configuration trained on the wrong GPU aside,
+    so it is trained from scratch — no Phase 1, epoch or RNG state is reused."""
+    for phase in CFG.test_phases:
+        for kind in ("best", "last"):
+            path = (PATHS["checkpoints"] / spec["generator"] /
+                    checkpoint_filename(spec["generator"], spec["option"],
+                                        spec["kappa"], spec["seed"], phase, kind))
+            quarantine(path.with_suffix(".json"), "sidecar of a wrong-GPU checkpoint")
+            quarantine(path, f"trained on {WRONG_GPU_RUNS[spec['run_key']]}, "
+                             f"REQUIRE_TRAINED_ON_GPU={REQUIRE_TRAINED_ON_GPU!r}")
 
 
 def execute_queue(cfg: ExperimentConfig) -> Dict[str, Any]:
@@ -5170,9 +5172,15 @@ def execute_queue(cfg: ExperimentConfig) -> Dict[str, Any]:
     pending, exhausted = [], []
     for s in queue:
         entry = results["runs"].get(s["run_key"])
-        if run_is_complete(entry, s):
+        if run_is_complete(entry, s, check_gpu=True):
             continue
         (exhausted if _exhausted(entry) else pending).append(s)
+    if WRONG_GPU_RUNS:
+        print(f"  {len(WRONG_GPU_RUNS)} configuration(s) are complete but were "
+              f"trained on a GPU other than {REQUIRE_TRAINED_ON_GPU}; they are "
+              f"trained again from scratch here:")
+        for k, g in WRONG_GPU_RUNS.items():
+            print(f"    {k}  (was trained on {g})")
     print(f"Queue: {len(queue)} configurations, {len(pending)} to execute, "
           f"{len(queue) - len(pending) - len(exhausted)} already complete and "
           f"verified, {len(exhausted)} permanently failed.\n")
@@ -5193,6 +5201,11 @@ def execute_queue(cfg: ExperimentConfig) -> Dict[str, Any]:
         entry.update({"generator": spec["generator"], "option": spec["option"],
                       "kappa": spec["kappa"], "seed": spec["seed"],
                       "status": "running", "started_utc": utc_now()})
+        if key in WRONG_GPU_RUNS:
+            discard_wrong_gpu_run(spec)
+            entry.pop("completed_utc", None)
+            entry["retrained_because"] = (f"trained on {WRONG_GPU_RUNS[key]}, "
+                                          f"required {REQUIRE_TRAINED_ON_GPU}")
         results["runs"][key] = entry
         save_training_results(results)
 
@@ -5517,6 +5530,16 @@ if EVAL_SUMMARY_PATH.exists():
     with open(EVAL_SUMMARY_PATH, "r", encoding="utf-8") as f:
         _cached = json.load(f)
     _ok, _why = cache_is_valid(_cached)
+    # The cache must describe exactly the checkpoints on disk now: a
+    # configuration trained again (e.g. on another GPU) has a new artifact
+    # hash, and its old evaluation must not be reused.
+    _want = {(r["file"], r["artifact_hash"])
+             for _, r in CHECKPOINT_AUDIT[CHECKPOINT_AUDIT["verified"]].iterrows()}
+    _have = {(r.get("checkpoint"), r.get("artifact_hash"))
+             for r in _cached.get("rows", [])}
+    if _ok and _have != _want:
+        _ok, _why = False, (f"{len(_want ^ _have)} checkpoint(s) differ from "
+                            f"the ones evaluated")
     if _ok and _cached.get("n_checkpoints") == int(CHECKPOINT_AUDIT["verified"].sum()):
         _eval_rows = _cached["rows"]
         log(f"  reused cached evaluations ({len(_eval_rows)} rows)")

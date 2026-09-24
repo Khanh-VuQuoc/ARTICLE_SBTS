@@ -125,30 +125,30 @@ says so. Resuming works at three levels:
 At most the epochs since the last periodic save are repeated.
 `FORCE_NEW_RUN = True` starts a separate run instead.
 
-To split the work across two T4 sessions, `notebooks/shards/` holds three
-ready-to-run notebooks; nothing to edit:
+To split the work across two T4 sessions, `notebooks/shards/` holds two
+ready-to-run notebooks, one per Colab session. Open each and run them at the
+same time; nothing to edit:
 
-| File | Where | Trains |
+| File | GPU | Trains |
 |---|---|---|
-| `run_T4_1.ipynb` | machine 1 | seeds 0, 2, 4, 6, 8 of GBM, Heston and SBTS |
-| `run_T4_1b.ipynb` | machine 1, after `run_T4_1` stops | seeds 7, 9 |
-| `run_T4_2.ipynb` | machine 2, in parallel | seeds 1, 3, 5 |
+| `run_T4_1.ipynb` | T4 | seeds 0, 2, 4, 6, 8 of GBM, Heston and SBTS |
+| `run_T4_2.ipynb` | T4 | seeds 1, 3, 5, 7, 9 of GBM, Heston and SBTS |
 
 Together they cover all 180 configurations with no overlap; completed
-configurations are skipped. The odd seeds are split 3 + 2 because machine 1
-was already far through the even seeds when the odd seeds had to start over.
+configurations are skipped. Both join the existing run automatically — the one
+with the same `config_hash` and the most completed configurations — and must
+print the same `run_id` in Cell 3.
 
 The whole experiment is trained on T4: these notebooks set
-`JOIN_ONLY_RUNS_ON_GPU = "T4"`, so auto-resume skips any run another GPU (the
-earlier A100 session) wrote to, and joins the T4 run with the same
-`config_hash` and the most completed configurations. Both machines must see
-the same Google Drive folder and print the same `run_id` in Cell 3; a notebook
-that finds no T4 run stops in Cell 3 before training anything. **Whichever
-finishes last continues straight into the audit, evaluation, statistics,
-diagnostics and tables**; the others stop after Cell 19 with
+`REQUIRE_TRAINED_ON_GPU = "T4"`. Every checkpoint records the GPU it was
+trained on, and a configuration whose checkpoint came from another GPU (the
+earlier A100 session) is trained again from scratch; its old checkpoints are
+quarantined, and the notebook lists them before the queue starts.
+**Whichever finishes last continues straight into the audit, evaluation,
+statistics, diagnostics and tables**; the other stops after Cell 19 with
 `ShardTrainingComplete`, the expected end and not an error. After a Colab
-disconnect, run the same notebook again. If all stop without the analysis —
-possible because Google Drive syncs between machines with a delay — run any
+disconnect, run the same notebook again. If both stop without the analysis —
+possible because Google Drive syncs between machines with a delay — run either
 one again: it finds every configuration complete and goes straight to the
 analysis.
 
@@ -158,8 +158,8 @@ processes will train the same configurations.
 All shards run on a T4. The A100_FAST numerical mode needs bf16/TF32
 (compute capability 8.0+), so on a T4 Gate 3 benchmarks only REFERENCE_FP32.
 Each session records its own GPU and environment
-(`environment/environment__<shard>.json` and `gpu_info__<shard>.txt`), which is
-what `JOIN_ONLY_RUNS_ON_GPU` checks.
+(`environment/environment__<shard>.json` and `gpu_info__<shard>.txt`), and every checkpoint
+records the GPU it was trained on, which is what `REQUIRE_TRAINED_ON_GPU` checks.
 
 These files are generated — edit `SBTS_CANONICAL_A100.ipynb` and re-run
 `python3 tools/make_shard_notebooks.py`.
