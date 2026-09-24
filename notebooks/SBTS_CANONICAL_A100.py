@@ -168,6 +168,12 @@ SHARD_GENERATORS = None
 # matter how far an earlier run already got through the queue.
 SHARD_SEEDS = None
 
+# Only join a run whose every session so far ran on this GPU (a substring of
+# the CUDA device name, e.g. "T4"). A run trained partly on another GPU is
+# skipped when auto-resuming, so e.g. an older A100 run is never mixed into an
+# all-T4 experiment. None joins any run with the same config_hash.
+JOIN_ONLY_RUNS_ON_GPU = None
+
 # How often a training phase persists enough state to continue from the exact
 # epoch it reached. 0 disables it. This is an execution detail, not an
 # experiment parameter, so it stays out of ExperimentConfig and does not change
@@ -192,6 +198,7 @@ print(f"SMOKE_SIZING   = {SMOKE_SIZING} (None => derived from RUN_MODE)")
 print(f"FORCE_NEW_RUN  = {FORCE_NEW_RUN}")
 print(f"SHARD          = generators={SHARD_GENERATORS or 'all'}  "
       f"seeds={SHARD_SEEDS if SHARD_SEEDS is not None else 'all'}")
+print(f"JOIN_ONLY_RUNS_ON_GPU = {JOIN_ONLY_RUNS_ON_GPU}")
 print(f"CHECKPOINT_EVERY_EPOCHS = {CHECKPOINT_EVERY_EPOCHS}"
       f"{' (epoch-level resume disabled)' if not CHECKPOINT_EVERY_EPOCHS else ''}")
 print("\nNo runtime estimate is shown until the Cell-18 smoke benchmark has "
@@ -968,6 +975,27 @@ def resolve_run_id(cfg: ExperimentConfig, resume: Optional[str]) -> str:
         if f.exists() and f.read_text().strip() == cfg.config_hash():
             candidates.append(rd.name)
 
+    if JOIN_ONLY_RUNS_ON_GPU and cfg.run_mode in ("FULL", "SMOKE"):
+        def _gpus(run_name: str) -> list:
+            names = []
+            for f in (RUNS_ROOT / run_name / "environment").glob("gpu_info*.txt"):
+                try:
+                    names.append(json.loads(f.read_text()).get("gpu_name"))
+                except Exception:                            # noqa: BLE001
+                    names.append(None)
+            return names
+
+        kept = []
+        for name in candidates:
+            gpus = _gpus(name)
+            if gpus and all(g and JOIN_ONLY_RUNS_ON_GPU in g for g in gpus):
+                kept.append(name)
+            else:
+                print(f"  skipping run {name}: not trained only on "
+                      f"{JOIN_ONLY_RUNS_ON_GPU} (sessions so far: "
+                      f"{sorted(set(map(str, gpus))) or 'unknown'})")
+        candidates = kept
+
     if cfg.run_mode in ("ANALYSIS_ONLY", "DIAGNOSTICS"):
         if not candidates:
             raise FileNotFoundError(
@@ -1022,7 +1050,9 @@ def resolve_run_id(cfg: ExperimentConfig, resume: Optional[str]) -> str:
     if _is_shard and not FORCE_NEW_RUN:
         raise RuntimeError(
             f"This notebook is one shard of a split run, but it found NO existing "
-            f"run with config_hash {cfg.config_hash()[:8]} under\n  {RUNS_ROOT}\n"
+            f"run with config_hash {cfg.config_hash()[:8]}"
+            f"{' trained only on ' + JOIN_ONLY_RUNS_ON_GPU if JOIN_ONLY_RUNS_ON_GPU else ''}"
+            f" under\n  {RUNS_ROOT}\n"
             f"Nothing has been trained. Most likely this session sees a different "
             f"Google Drive from the other session (a different Google account). "
             f"Make both sessions see the same ARTICLE_SBTS folder, then re-run. "
