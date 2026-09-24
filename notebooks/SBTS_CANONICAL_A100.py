@@ -478,13 +478,22 @@ plt.rcParams.update({
 DRIVE_MOUNTED = False
 DRIVE_ROOT = None
 if IN_COLAB:
+    # Every artifact of a run must land on Drive. Falling back to the VM's local
+    # disk would train for hours into storage that vanishes with the session
+    # and that no other session can see, so a failed mount stops here.
     try:
         from google.colab import drive as _gdrive
         _gdrive.mount("/content/drive", force_remount=False)
-        DRIVE_ROOT = Path("/content/drive/MyDrive/ARTICLE_SBTS")
-        DRIVE_MOUNTED = True
     except Exception as exc:                                 # noqa: BLE001
-        print(f"  [WARN] Drive mount failed: {exc!r}")
+        raise RuntimeError(
+            f"Google Drive could not be mounted ({exc!r}). Nothing has been "
+            f"trained. Re-run this cell and complete the Drive authorisation; "
+            f"results must be stored on Drive, never on the temporary VM disk.") from exc
+    if not Path("/content/drive/MyDrive").is_dir():
+        raise RuntimeError("Drive reports mounted but /content/drive/MyDrive is "
+                           "missing; re-run this cell.")
+    DRIVE_ROOT = Path("/content/drive/MyDrive/ARTICLE_SBTS")
+    DRIVE_MOUNTED = True
 if DRIVE_ROOT is None:
     DRIVE_ROOT = Path(os.environ.get("SBTS_STORAGE_ROOT", "./ARTICLE_SBTS")).resolve()
 DRIVE_ROOT.mkdir(parents=True, exist_ok=True)
@@ -987,8 +996,11 @@ def resolve_run_id(cfg: ExperimentConfig, resume: Optional[str]) -> str:
             return len(done)
 
         progress = [(name, _n_complete(name)) for name in candidates]
-        chosen = max(progress, key=lambda t: (t[1], t[0]))[0]
-        print(f"  RESUMING the existing run {chosen} (same config_hash).\n"
+        chosen, chosen_n = max(progress, key=lambda t: (t[1], t[0]))
+        print(f"  RESUMING the existing run {chosen} (same config_hash),\n"
+              f"  which already holds {chosen_n} completed configurations.\n"
+              f"  Parallel sessions must print the SAME run id here — if another "
+              f"session shows\n  a different one, they are not sharing a run.\n"
               f"  Completed configurations will be skipped after their "
               f"checkpoints verify.\n"
               f"  Set FORCE_NEW_RUN = True in Cell 0 to start a separate run "
@@ -1001,6 +1013,21 @@ def resolve_run_id(cfg: ExperimentConfig, resume: Optional[str]) -> str:
                 print(f"    {'->' if name == chosen else '  '} {name}  "
                       f"({n} complete)")
         return chosen
+
+    # A shard exists to join a run another session is also working on. Finding
+    # none almost always means this session sees a different storage location
+    # (another Google account's Drive, or Drive not mounted) — starting a run of
+    # its own would train for hours into a copy nobody else can merge with.
+    _is_shard = bool(SHARD_GENERATORS) or SHARD_SEEDS is not None
+    if _is_shard and not FORCE_NEW_RUN:
+        raise RuntimeError(
+            f"This notebook is one shard of a split run, but it found NO existing "
+            f"run with config_hash {cfg.config_hash()[:8]} under\n  {RUNS_ROOT}\n"
+            f"Nothing has been trained. Most likely this session sees a different "
+            f"Google Drive from the other session (a different Google account). "
+            f"Make both sessions see the same ARTICLE_SBTS folder, then re-run. "
+            f"Only if you really mean to start a brand-new run, set "
+            f"FORCE_NEW_RUN = True in Cell 0.")
     return mint_run_id(cfg)
 
 
