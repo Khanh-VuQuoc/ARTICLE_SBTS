@@ -91,3 +91,8 @@ Thumbs.db
 .env
 secrets.json
 api_keys.txt
+
+# ── Final canonical FULL run, committed so it can be read without Drive ──
+!canonical_results/
+!canonical_results/**/
+!canonical_results/**
