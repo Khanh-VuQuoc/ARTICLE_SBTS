@@ -2,7 +2,7 @@
 
 **Repository:** `Khanh-VuQuoc/ARTICLE_SBTS`  
 **Implementation branch:** `claude/mcs-legacy-results-v1`  
-**Status:** implementation specification for Claude  
+**Status:** implemented in `notebooks/article_mcs_recalculation.ipynb`; synthetic smoke tests pass (`tests/test_mcs_recalculation.py`); awaiting one Colab run against the legacy Drive CSV  
 **Scope:** recalculate the Model Confidence Set (MCS) only; do not retrain models or replace the legacy descriptive results
 
 ## 1. Decision locked by the thesis owner
