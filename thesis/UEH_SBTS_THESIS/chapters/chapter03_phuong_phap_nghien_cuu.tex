@@ -1,0 +1,393 @@
+% =============================================================================
+% CHƯƠNG 3 — PHƯƠNG PHÁP NGHIÊN CỨU
+% Văn phong khoa học, thuật ngữ và cấu trúc đã được chuẩn hóa.
+% =============================================================================
+
+\chapter{PHƯƠNG PHÁP NGHIÊN CỨU}
+\label{chap:phuong-phap}
+
+\section{Thiết kế nghiên cứu}
+\label{sec:c3-design}
+
+Nghiên cứu sử dụng phương pháp định lượng và thực nghiệm tính toán. Quy trình
+gồm năm bước:
+\begin{enumerate}[label=(\arabic*)]
+    \item thu thập, căn chỉnh và chuẩn hóa giá ba tài sản cơ sở;
+    \item hiệu chỉnh ba mô hình sinh dữ liệu trên cùng cửa sổ lịch sử và sinh các tập quỹ
+    đạo có cùng kích thước;
+    \item huấn luyện cùng một chính sách \textit{Deep Hedging} trên từng tập
+    quỹ đạo bằng hai giai đoạn MSE và CVaR;
+    \item đánh giá các checkpoint trên các cửa sổ lịch sử của ba giai đoạn thị
+    trường;
+    \item so sánh bằng chỉ tiêu mô tả, kiểm định ghép cặp có điều chỉnh nhiều
+    phép thử và Model Confidence Set.
+\end{enumerate}
+
+Đơn vị thực nghiệm là một tổ hợp
+$(\text{mô hình sinh dữ liệu},\text{hợp đồng},\kappa,\text{seed})$. Mỗi tổ hợp
+tạo một checkpoint sau MSE và một checkpoint sau CVaR. Mỗi checkpoint được
+đánh giá trên các cửa sổ của giai đoạn căng thẳng, giai đoạn phục hồi và giai
+đoạn đại diện mà không huấn luyện lại mạng.
+
+\section{Dữ liệu và xử lý dữ liệu}
+\label{sec:c3-data}
+
+\subsection{Nguồn dữ liệu và tài sản cơ sở}
+
+Dữ liệu gồm giá đóng cửa điều chỉnh của ba cổ phiếu Hoa Kỳ: Apple (AAPL),
+JPMorgan Chase (JPM) và ExxonMobil (XOM), được thu thập qua Yahoo Finance. Ba
+tài sản thuộc các ngành công nghệ, tài chính và năng lượng. Các chuỗi được căn
+chỉnh theo ngày giao dịch chung; giá trị thiếu sau căn chỉnh được điền bằng
+quan sát gần nhất.
+
+Lợi suất log của tài sản $i$ được tính bằng
+\begin{equation}
+    r_t^i=\log\left(\frac{S_t^i}{S_{t-1}^i}\right).
+    \label{eq:c3-log-return}
+\end{equation}
+Trước khi đưa vào mạng hedging, mỗi quỹ đạo giá được chuẩn hóa theo giá đầu
+kỳ:
+\begin{equation}
+    \widetilde S_t^i=\frac{S_t^i}{S_0^i},
+    \qquad \widetilde S_0^i=1.
+    \label{eq:c3-normalized-price}
+\end{equation}
+Sau chuẩn hóa, giá của mỗi tài sản bằng 1 tại đầu kỳ. Vì vậy, mức giá thực hiện
+$\kappa$ được diễn giải theo tỷ lệ so với giá đầu kỳ và không phụ thuộc vào
+mệnh giá riêng của từng cổ phiếu.
+
+\subsection{Giai đoạn hiệu chỉnh và các giai đoạn đánh giá}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Cấu trúc thời gian của dữ liệu; nhãn trong ngoặc là tên giai đoạn trong mã nguồn}
+\label{tab:c3-periods}
+\begin{tabular}{@{}llrl@{}}
+\toprule
+\textbf{Giai đoạn} & \textbf{Khoảng thời gian} & \textbf{Số ngày} &
+\textbf{Vai trò}\\
+\midrule
+Hiệu chỉnh & 01/2005--12/2019 & 3.774 & Hiệu chỉnh ba mô hình sinh dữ liệu\\
+Căng thẳng (COVID) & 01/2019--12/2020 & 503 & Đánh giá\\
+Phục hồi (PostCOVID) & 01/2021--12/2022 & 503 & Đánh giá\\
+Đại diện (Recent) & 01/2023--12/2025 & 750 & Đánh giá\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Giai đoạn căng thẳng bắt đầu từ năm 2019 để các cửa sổ trượt 252 ngày bao phủ cú sốc
+tháng 2--4/2020. Năm 2019 đồng thời thuộc giai đoạn hiệu chỉnh mô hình sinh dữ
+liệu. Do đó, giai đoạn căng thẳng không phải tập ngoài mẫu hoàn toàn đối với bước
+hiệu chỉnh. Mạng hedging chỉ được huấn luyện trên quỹ đạo tổng hợp và không
+được huấn luyện trực tiếp trên các cửa sổ giá lịch sử.
+
+Từ 3.774 quan sát của giai đoạn hiệu chỉnh, các cửa sổ chồng lấn có độ dài
+$N=252$ được xây dựng. Đối với SBTS, tập tham chiếu gồm
+$M=3.522$ cửa sổ. Đối với đánh giá, mỗi giai đoạn cũng được chuyển thành tập các
+cửa sổ chuẩn hóa dài 252 ngày theo cùng quy tắc.
+
+\section{Hiệu chỉnh và sinh quỹ đạo}
+\label{sec:c3-calibration}
+
+Mỗi mô hình sinh dữ liệu tạo $L=20.000$ quỹ đạo gồm 252 ngày và ba tài sản.
+Các quỹ đạo được chia thành 16.000 đường huấn luyện, 2.000 đường xác thực và
+2.000 đường kiểm tra, với seed chia tập bằng 42. Kích thước ba tập được giữ cố
+định giữa GBM, Heston và SBTS.
+
+\subsection{Mô hình sinh dữ liệu GBM đa biến}
+
+GBM được hiệu chỉnh bằng mô-men mẫu. Với $\Delta t=1/252$, bước sinh lợi suất
+log là
+\begin{equation}
+    r_t^i=\left(\mu_i-\frac12\sigma_i^2\right)\Delta t
+    +\sigma_i\sqrt{\Delta t}\,Z_t^i,
+    \label{eq:c3-gbm-discrete}
+\end{equation}
+trong đó vector $Z_t$ được tạo bằng cách nhân nhiễu chuẩn độc lập với nhân
+Cholesky của ma trận tương quan lợi suất thực nghiệm. Độ biến động năm ước
+lượng cho AAPL, JPM và XOM lần lượt là $0{,}3232$, $0{,}3729$ và $0{,}2341$;
+các tương quan cặp là $0{,}399$, $0{,}377$ và $0{,}468$.
+
+\subsection{Mô hình sinh dữ liệu Heston đa biến}
+
+Mỗi tài sản có một phương trình giá và một phương trình phương sai theo
+\eqref{eq:c2-heston}. Đặc tả giản lược dùng chung
+\begin{equation}
+    \kappa_v=5{,}0,\qquad \xi=0{,}7,\qquad \rho=-0{,}7,
+    \label{eq:c3-heston-shared}
+\end{equation}
+trong khi phương sai dài hạn và phương sai ban đầu của từng tài sản bằng bình
+phương độ biến động lịch sử. Các cú sốc giá giữa tài sản được tương quan hóa
+bằng cùng ma trận dùng cho GBM; cú sốc phương sai được tạo riêng theo từng tài
+sản và ghép với cú sốc giá thông qua $\rho$. Mô phỏng dùng bốn bước nhỏ trong
+mỗi ngày, full truncation để giữ phương sai không âm, Milstein cho phương sai
+và log-Euler cho giá.
+
+\subsection{Mô hình sinh dữ liệu SBTS đa biến}
+
+SBTS sử dụng $M=3.522$ cửa sổ tham chiếu và kernel đa biến
+\eqref{eq:c2-kernel}. Tại mỗi ngày mô phỏng, lịch sử $K$ ngày gần nhất của quỹ
+đạo đang sinh được so sánh với các cửa sổ tham chiếu. Trọng số tương tự lịch
+sử được kết hợp với nhân Brown suy ra từ nghiệm Cole--Hopf; chuyển tiếp là
+trung bình có trọng số của các dịch chuyển kế tiếp trong mẫu, cộng với nhiễu
+Brown ở lưới Euler. Cấu hình dùng $N^{\pi}=100$ bước nhỏ trong mỗi ngày.
+
+Băng thông và bậc nhớ được chọn theo MSE trên tập giữ lại với 84 cấu hình. Cặp
+tham số được sử dụng là
+\begin{equation}
+    (h^{*},K^{*})=(0{,}030,5),
+    \qquad \mathrm{MSE}^{*}_{\mathrm{holdout}}=1{,}75\times10^{-4}.
+    \label{eq:c3-hk-result}
+\end{equation}
+$K^{*}=5$ tương ứng với năm ngày giao dịch gần nhất.
+
+\section{Hợp đồng quyền chọn được nghiên cứu}
+\label{sec:c3-contracts}
+
+Với $d=3$, $N=252$ và giá ban đầu chuẩn hóa bằng 1, giá trung bình theo thời
+gian của tài sản $i$ là
+\begin{equation}
+    \bar R_i=\frac{1}{252}\sum_{n=1}^{252}\frac{S_n^i}{S_0^i}.
+    \label{eq:c3-average-normalized-price}
+\end{equation}
+Khoản thanh toán của hai hợp đồng được xác định bởi
+\begin{align}
+    \Phi_{\mathrm{basket}}
+    &=\left(\frac13\sum_{i=1}^{3}\bar R_i-\kappa\right)^{+},
+    \label{eq:c3-basket}\\
+    \Phi_{\mathrm{worst}}
+    &=\left(\kappa-\min_{1\le i\le3}\bar R_i\right)^{+}.
+    \label{eq:c3-worst}
+\end{align}
+Đối với basket Asian call, đại lượng
+$\frac{1}{3}\sum_{i=1}^{3}\bar R_i$ là giá trung bình của rổ tài sản. Quyền
+chọn có khoản thanh toán dương khi giá trung bình của rổ lớn hơn $\kappa$.
+Đối với Asian worst-of put, $\min_i\bar R_i$ là giá trung bình của tài sản có
+kết quả thấp nhất trong rổ. Quyền chọn có khoản thanh toán dương khi đại lượng
+này thấp hơn $\kappa$.
+
+Ba mức giá thực hiện là
+$\kappa\in\{0{,}95;1{,}00;1{,}05\}$. Vì giá đầu kỳ đã được chuẩn hóa bằng 1,
+$\kappa=0{,}95$, $1{,}00$ và $1{,}05$ lần lượt tương ứng với ngưỡng bằng 95\%,
+100\% và 105\% giá đầu kỳ. Trạng thái trong giá, ngang giá hoặc ngoài giá được
+xác định riêng cho quyền chọn mua và quyền chọn bán.
+
+\section{Mô hình \textit{Deep Hedging}}
+\label{sec:c3-hedging-model}
+
+\subsection{Biến trạng thái và kiến trúc mạng}
+
+Tại ngày $t$, vector trạng thái gồm
+\begin{equation}
+    X_t=\left(S_t^1,S_t^2,S_t^3,
+    \bar S_t^1,\bar S_t^2,\bar S_t^3,
+    \delta_{t-1}^1,\delta_{t-1}^2,\delta_{t-1}^3,T-t\right)
+    \in\mathbb{R}^{10},
+    \label{eq:c3-state}
+\end{equation}
+trong đó $\bar S_t^i$ là trung bình chạy và $\delta_{-1}=0$. Mạng truyền thẳng
+có kiến trúc
+\begin{equation}
+    10\longrightarrow64\longrightarrow64\longrightarrow3,
+    \label{eq:c3-architecture}
+\end{equation}
+với ReLU ở hai lớp ẩn và đầu ra tuyến tính là ba vị thế hedging. Trọng số
+được khởi tạo bằng Xavier-uniform; hệ số khởi tạo của lớp cuối bằng $0{,}1$.
+Mạng có 5.059 tham số. Khi bổ sung tham số vô hướng $V_0$, giai đoạn MSE có
+5.060 tham số cần ước lượng.
+
+\subsection{Giá trị danh mục, chi phí và sai số hedging}
+
+Với chi phí giao dịch tỷ lệ $c=0{,}001$, giá trị cuối kỳ của danh mục hedging là
+\begin{equation}
+    V_T=V_0+\sum_{t=0}^{N-1}\delta_t^{\top}(S_{t+1}-S_t)
+    -c\sum_{t=0}^{N-1}\sum_{i=1}^{3}
+    |\delta_t^i-\delta_{t-1}^i|S_t^i.
+    \label{eq:c3-terminal-wealth}
+\end{equation}
+Sai số hedging được định nghĩa theo nghĩa vụ của người bán:
+\begin{equation}
+    R=\Phi-V_T
+    =\Phi-V_0-\mathrm{PnL}(\delta)+\mathrm{cost}(\delta).
+    \label{eq:c3-residual}
+\end{equation}
+$R>0$ biểu thị thiếu hụt; do đó phần đuôi trên của $R$ là vùng tổn thất cần
+được CVaR kiểm soát.
+
+Trên mini-batch kích thước $B$, hai hàm mất mát là
+\begin{align}
+    \mathcal{L}_{\mathrm{MSE}}
+    &=\frac{1}{B}\sum_{b=1}^{B}(R^{(b)})^2,
+    \label{eq:c3-mse-loss}\\
+    \mathcal{L}_{\mathrm{CVaR}}
+    &=\nu+\frac{1}{(1-0{,}95)B}
+      \sum_{b=1}^{B}(R^{(b)}-\nu)^{+}.
+    \label{eq:c3-cvar-loss}
+\end{align}
+
+\section{Quy trình huấn luyện hai giai đoạn}
+\label{sec:c3-curriculum}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Cấu hình huấn luyện MSE--CVaR dùng chung cho toàn bộ lưới}
+\label{tab:c3-hyperparameters}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Tham số} & \textbf{Giai đoạn 1} & \textbf{Giai đoạn 2}\\
+\midrule
+Hàm mất mát & MSE & $\mathrm{CVaR}_{0{,}95}$\\
+Tham số học & $\theta,V_0$ & $\theta,\nu$\\
+Tham số cố định & Không & $V_0=V_0^{*}$\\
+Learning rate & $10^{-3}$ & $10^{-4}$\\
+Epoch tối đa & 500 & 200\\
+Early-stopping patience & 20 & 20\\
+Scheduler patience/factor & $10/0{,}5$ & $10/0{,}5$\\
+Learning rate tối thiểu & $10^{-7}$ & $10^{-7}$\\
+\midrule
+Optimizer & \multicolumn{2}{c}{Adam, $\beta_1=0{,}9$, $\beta_2=0{,}999$}\\
+Mini-batch & \multicolumn{2}{c}{$B=4.096$}\\
+Gradient clipping & \multicolumn{2}{c}{Chuẩn $1{,}0$}\\
+Chi phí giao dịch & \multicolumn{2}{c}{$c=0{,}001$}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Giai đoạn 1 tối thiểu hóa MSE và ước lượng đồng thời $V_0$. Checkpoint có hàm
+mất mát xác thực thấp nhất được lưu; giá trị tương ứng được ký hiệu là
+$V_0^{*}$. Giai đoạn 2 tải checkpoint này, cố định $V_0^{*}$, khởi tạo $\nu$
+từ phân vị 95\% của sai số hedging trên tập xác thực và tối thiểu hóa CVaR.
+Adam, cắt gradient, dừng sớm và lịch giảm tốc độ học được áp dụng giống nhau
+cho ba mô hình sinh dữ liệu \parencite{KingmaBa2015}.
+
+MSE sử dụng toàn bộ quan sát trong mini-batch để khởi tạo tham số. CVaR chỉ sử
+dụng các quan sát thuộc phần đuôi bất lợi. $V_0$ được cố định trong giai đoạn
+CVaR vì tính tịnh tiến của CVaR làm bài toán tối ưu theo $V_0$ không có nghiệm
+dừng hữu hạn.
+
+\section{Thiết kế thực nghiệm và các yếu tố kiểm soát}
+\label{sec:c3-experiment}
+
+Lưới thực nghiệm là
+\begin{equation}
+    \underbrace{3}_{\text{mô hình sinh dữ liệu}}
+    \times\underbrace{2}_{\text{hợp đồng}}
+    \times\underbrace{3}_{\text{mức giá thực hiện}}
+    \times\underbrace{10}_{\text{seed}}
+    =180\ \text{cấu hình huấn luyện được giữ lại}.
+    \label{eq:c3-grid}
+\end{equation}
+Mỗi cấu hình có hai checkpoint, tương ứng với 360 checkpoint. Mười seed mục
+tiêu được đánh số từ 0 đến 9 và được dùng đồng bộ giữa các nhánh, ngoại trừ trường
+hợp nêu tại Mục~\ref{sec:c3-seed-replacement}.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Các yếu tố được giữ cố định giữa ba mô hình sinh dữ liệu}
+\label{tab:c3-fairness}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Yếu tố} & \textbf{Giá trị chung}\\
+\midrule
+Cửa sổ hiệu chỉnh & 2005--2019, 3.774 ngày giao dịch\\
+Số quỹ đạo & 20.000; chia 16.000/2.000/2.000\\
+Độ dài và số tài sản & 252 ngày, 3 tài sản, $S_0^i=1$\\
+Hợp đồng & Basket Asian call và Asian worst-of put\\
+Mức giá thực hiện & $0{,}95;1{,}00;1{,}05$\\
+Kiến trúc & $10\to64\to64\to3$, ReLU\\
+Huấn luyện & MSE tối đa 500 epoch, CVaR tối đa 200 epoch\\
+Chi phí giao dịch & $c=0{,}001$\\
+Đánh giá & Cùng các cửa sổ của ba giai đoạn thị trường\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Các chỉ tiêu gồm P\&L trung bình, độ lệch chuẩn của sai số hedging
+$\sigma(R)$, $\mathrm{CVaR}_{0{,}95}(R)$, khoản thanh toán, chi phí giao dịch và
+$V_0^{*}$. P\&L được xác định bằng $V_T-\Phi=-R$. Giá trị P\&L trung bình gần
+0 biểu thị sai số trung bình nhỏ; $\sigma(R)$ thấp biểu thị kết quả lãi/lỗ ổn
+định hơn; $\mathrm{CVaR}_{0{,}95}(R)$ thấp biểu thị mức thiếu hụt trung bình nhỏ
+hơn trong 5\% trường hợp bất lợi nhất. Chỉ tiêu xếp hạng chính trong Chương 4
+là $\sigma(R)$ tại checkpoint sau CVaR.
+
+\subsection{Công bố trường hợp seed thay thế}
+\label{sec:c3-seed-replacement}
+
+Cấu hình SBTS--worst-of put--$\kappa=0{,}95$--seed 3 phân kỳ trong giai đoạn
+CVaR. Bộ kết quả thay checkpoint này bằng một lần chạy hội tụ với seed 10 để
+giữ $n=10$. Quan sát thay thế không ghép cùng seed với GBM và Heston. Vì vậy,
+các kiểm định liên quan đến tổ hợp này không có cấu trúc ghép cặp hoàn toàn.
+
+\section{Phương pháp suy luận thống kê}
+\label{sec:c3-statistics}
+
+\subsection{Kiểm định $t$ ghép cặp và kích thước ảnh hưởng}
+
+Với hai mô hình sinh dữ liệu $A$ và $B$, đặt $d_s=L_s^A-L_s^B$, trong đó
+$L_s$ là chỉ tiêu đánh giá ở seed $s$. Thống kê kiểm định là
+\begin{equation}
+    t=\frac{\bar d}{s_d/\sqrt{n}},\qquad n=10,
+    \label{eq:c3-paired-t}
+\end{equation}
+và Cohen's $d$ ghép cặp là $d_{\mathrm{Cohen}}=\bar d/s_d$. Ghép seed kiểm
+soát biến thiên do khởi tạo mạng. Ngoại lệ tại
+Mục~\ref{sec:c3-seed-replacement} áp dụng cho một tổ hợp.
+
+\subsection{Điều chỉnh Benjamini--Hochberg}
+
+Thiết kế tạo 216 phép kiểm định:
+\begin{equation}
+\begin{aligned}
+216={}&(3\ \text{cặp})\times(2\ \text{hợp đồng})
+\times(3\ \text{mức giá thực hiện})\\
+&\times(3\ \text{giai đoạn})
+\times(2\ \text{giai đoạn huấn luyện})\\
+&\times(2\ \text{chỉ tiêu}).
+\end{aligned}
+\end{equation}
+Toàn bộ $p$-value được điều chỉnh chung bằng Benjamini--Hochberg ở mức
+$q=0{,}05$ \parencite{BenjaminiHochberg1995}. Một mô hình được xếp hạng cao
+hơn khi có chỉ tiêu trung bình thấp hơn và $p_{\mathrm{BH}}<0{,}05$. Các
+trường hợp còn lại được ghi nhận là chưa có khác biệt thống kê.
+
+\subsection{Model Confidence Set}
+
+MCS của \textcite{HansenLundeNason2011} được áp dụng riêng cho từng tổ hợp
+hợp đồng--mức giá thực hiện--giai đoạn trên $\sigma(R)$ của checkpoint CVaR. Thủ tục
+dùng mức ý nghĩa $\alpha=0{,}10$ và 5.000 bootstrap ở cấp seed. MCS loại dần
+mô hình có chỉ tiêu đánh giá cao nhất cho đến khi không còn bác bỏ giả thuyết các mô hình còn
+lại có cùng giá trị kỳ vọng của chỉ tiêu. Tập một phần tử biểu thị một mô hình sinh dữ liệu được lựa chọn rõ; tập nhiều
+phần tử biểu thị dữ liệu chưa đủ để phân biệt các ứng viên.
+
+Kiểm định ghép cặp sử dụng chênh lệch trong từng seed. MCS đánh giá đồng thời
+ba mô hình và sử dụng độ phân tán giữa các seed. Hai phương pháp có thể tạo tập
+kết quả khác nhau vì sử dụng cấu trúc thông tin khác nhau.
+
+\section{Quy trình đối chiếu kết quả và khả năng tái lập}
+\label{sec:c3-reproducibility}
+
+Nguồn kết quả gồm ba notebook:
+\begin{itemize}
+    \item \texttt{article\_gbm.ipynb};
+    \item \texttt{article\_heston\_sbts.ipynb};
+    \item \texttt{article\_4\_3period.ipynb}.
+\end{itemize}
+Hai notebook đầu tạo dữ liệu, huấn luyện và lưu checkpoint. Notebook thứ ba
+đánh giá checkpoint trên ba giai đoạn, tạo bảng kiểm định, MCS, $V_0^{*}$ và
+kết quả của hai giai đoạn huấn luyện. Các notebook có tiền tố \texttt{25\_}
+chỉ được dùng để đối chiếu lịch sử và không được dùng làm nguồn kết quả cuối.
+
+Các số liệu tại Chương 4 được lấy từ bảng đầu ra của notebook tổng hợp. Các
+phân tích không có trong đầu ra cuối cùng không được sử dụng làm bằng chứng
+định lượng.
+
+\section{Tóm tắt chương}
+
+Chương 3 trình bày dữ liệu, cách hiệu chỉnh GBM, Heston và SBTS, hai hợp đồng,
+kiến trúc mạng và quy trình MSE--CVaR. Thiết kế gồm 180 lượt huấn luyện và 360
+checkpoint được đánh giá tại ba giai đoạn thị trường. So sánh thống kê sử dụng
+kiểm định ghép cặp, điều chỉnh Benjamini--Hochberg và MCS. Một trường hợp thay
+seed được nêu riêng trong giới hạn của cấu trúc ghép cặp.

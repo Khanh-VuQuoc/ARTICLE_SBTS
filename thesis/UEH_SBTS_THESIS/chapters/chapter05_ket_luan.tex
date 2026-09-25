@@ -1,0 +1,186 @@
+% =============================================================================
+% CHƯƠNG 5 — KẾT LUẬN VÀ HÀM Ý
+% Văn phong khoa học, thuật ngữ và cấu trúc đã được chuẩn hóa.
+% =============================================================================
+
+\chapter{KẾT LUẬN VÀ HÀM Ý}
+\label{chap:ket-luan}
+
+\section{Kết luận chính}
+\label{sec:c5-main-conclusion}
+
+Nghiên cứu so sánh GBM đa biến, Heston đa biến và
+\textit{Schrödinger Bridge Time Series} trong cùng một quy trình
+\textit{Deep Hedging}. Hai hợp đồng gồm basket Asian call và Asian worst-of
+put trên rổ AAPL--JPM--XOM. Mỗi hợp đồng được đánh giá tại ba mức giá thực
+hiện. Kiến trúc mạng, số quỹ đạo, chi phí giao dịch và quy trình MSE--CVaR được
+giữ cố định giữa ba mô hình sinh dữ liệu.
+
+Trong giai đoạn đại diện (2023--2025), SBTS có độ lệch chuẩn sai số hedging thấp nhất tại
+sáu tổ hợp, giảm 13--42\% so với GBM và 8--38\% so với Heston. MCS giữ SBTS là
+phần tử duy nhất tại cả sáu tổ hợp. Trong giai đoạn phục hồi (2021--2022), SBTS được lựa
+chọn cho basket call nhưng không được lựa chọn đồng nhất cho worst-of put.
+Trong giai đoạn căng thẳng (2019--2020), mô hình tham số có $\sigma(R)$ thấp hơn SBTS tại năm
+trong sáu tổ hợp của mỗi cặp so sánh; MCS giữ cả ba mô hình tại năm tổ hợp.
+
+SBTS có $V_0^{*}$ thấp nhất tại sáu tổ hợp, giảm 13--45\% so với GBM và
+17--44\% so với Heston. Trong giai đoạn MSE, $V_0^{*}$ là mức vốn ban đầu làm
+sai số hedging kỳ vọng bằng không dưới phân phối huấn luyện. Đại lượng này
+còn được gọi là giá bàng quan bậc hai (\textit{quadratic indifference price}).
+Thứ hạng $V_0^{*}$ được diễn giải cùng thứ hạng sai số hedging tại từng giai
+đoạn thị trường.
+
+\section{Trả lời câu hỏi nghiên cứu}
+\label{sec:c5-rq}
+
+\paragraph{RQ1 -- Mô hình sinh dữ liệu dựa trên dữ liệu có làm giảm sai số hedging?}
+SBTS làm giảm $\sigma(R)$ tại sáu tổ hợp của giai đoạn đại diện và ba tổ hợp basket call
+của giai đoạn phục hồi. Kết quả không được duy trì tại worst-of put của giai
+đoạn phục hồi và tại giai đoạn căng thẳng. Hiệu
+quả phụ thuộc vào giai đoạn thị trường và loại hợp đồng.
+
+\paragraph{RQ2 -- $V_0^{*}$ có khác biệt hệ thống giữa các mô hình sinh dữ liệu?}
+SBTS có $V_0^{*}$ thấp nhất tại sáu tổ hợp. Chênh lệch phản ánh phân phối khoản
+thanh toán, P\&L và chi phí giao dịch dưới từng mô hình sinh dữ liệu. Kết quả
+so sánh mức vốn ban đầu theo tiêu chuẩn bình phương sai số, không phải so sánh giá
+thị trường hoặc giá phi arbitrage.
+
+\paragraph{RQ3 -- Thứ hạng có ổn định qua các giai đoạn thị trường?}
+Thứ hạng không ổn định. Giai đoạn đại diện lựa chọn SBTS. Giai đoạn phục hồi
+cho kết quả khác nhau giữa hai hợp đồng. Trong giai đoạn căng thẳng, thứ hạng
+đảo chiều ở phần lớn kiểm định từng cặp và MCS không chọn một mô hình duy nhất
+tại năm tổ hợp.
+
+\section{Đánh giá các giả thuyết}
+\label{sec:c5-hypotheses}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Tổng hợp đánh giá giả thuyết nghiên cứu}
+\label{tab:c5-hypotheses}
+\begin{tabularx}{\textwidth}{@{}
+>{\raggedright\arraybackslash}p{0.09\textwidth}
+>{\raggedright\arraybackslash}p{0.25\textwidth}
+X@{}}
+\toprule
+\textbf{Giả thuyết} & \textbf{Kết luận} & \textbf{Bằng chứng chính}\\
+\midrule
+H1 & Được ủng hộ một phần & SBTS có $\sigma(R)$ thấp nhất tại sáu tổ hợp của giai đoạn
+đại diện. Sáu so sánh với GBM và năm trong sáu so sánh với Heston có
+$p_{\mathrm{BH}}<0{,}05$.\\
+H2 & Được ủng hộ về mô tả & $V_0^{*}$ của SBTS thấp nhất tại sáu tổ hợp, giảm
+13--45\% so với GBM và 17--44\% so với Heston. Kết quả $V_0^{*}$ không có kiểm
+định riêng.\\
+H3 & Được ủng hộ & MCS ở mức ý nghĩa 10\% chỉ giữ SBTS tại sáu tổ hợp của giai đoạn đại diện.\\
+H4 & Được ủng hộ về thứ hạng & Năm trong sáu tổ hợp của giai đoạn căng thẳng của mỗi cặp
+SBTS--mô hình tham số có $p_{\mathrm{BH}}<0{,}05$ theo hướng bất lợi cho SBTS.
+Cơ chế ngoại suy của kernel chưa được kiểm định riêng.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Đánh giá giả thuyết phân biệt kết quả thực nghiệm và cơ chế giải thích. Bộ kết
+quả xác định sự thay đổi thứ hạng giữa các giai đoạn thị trường nhưng không có
+kiểm định riêng về mức co của hỗ trợ kernel.
+
+\section{Đóng góp của nghiên cứu}
+\label{sec:c5-contributions}
+
+Thứ nhất, nghiên cứu so sánh ba mô hình sinh dữ liệu đa biến trong cùng quy
+trình \textit{Deep Hedging} cho quyền chọn Asian rainbow dưới chi phí giao
+dịch. Kiến trúc mạng, hợp đồng, mức giá thực hiện, số quỹ đạo và quy trình tối
+ưu được giữ cố định.
+
+Thứ hai, nghiên cứu phân tích $V_0^{*}$ như mức vốn ban đầu theo tiêu chuẩn
+bình phương sai số. Kết quả cung cấp đồng thời thứ hạng về sai số hedging và
+thứ hạng về mức vốn ban đầu.
+
+Thứ ba, nghiên cứu đánh giá thứ hạng tại ba giai đoạn thị trường bằng kiểm định
+từng cặp và MCS. Kết quả tách biệt thứ hạng tại giai đoạn đại diện, phục hồi và căng thẳng.
+
+\section{Hàm ý thực tiễn}
+\label{sec:c5-implications}
+
+Việc lựa chọn mô hình sinh dữ liệu cần sử dụng kết quả hedging rủi ro trên
+dữ liệu đánh giá, bên cạnh các chỉ tiêu phân phối. Kết quả phải được tách theo
+hợp đồng và giai đoạn thị trường. Trong giai đoạn đại diện, SBTS có $\sigma(R)$ và
+$V_0^{*}$ thấp hơn hai mô hình tham số. Trong giai đoạn căng thẳng, thứ hạng $\sigma(R)$ đảo
+chiều và MCS không chọn một mô hình duy nhất tại năm trong sáu tổ hợp.
+
+Checkpoint sau MSE và checkpoint sau CVaR cần được đánh giá riêng. Tại
+$\kappa=1{,}00$ trong giai đoạn đại diện, giai đoạn CVaR làm $\sigma(R)$ của basket call
+SBTS giảm 19,3\% nhưng làm $\sigma(R)$ của worst-of put SBTS tăng 13,4\%.
+
+\section{Hạn chế của nghiên cứu}
+\label{sec:c5-limitations}
+
+\paragraph{Giới hạn dữ liệu và số chiều.}
+Nghiên cứu chỉ dùng ba cổ phiếu Hoa Kỳ và một cửa sổ hiệu chỉnh 2005--2019.
+Kết quả không được suy rộng sang rổ có số chiều lớn hơn, ngoại hối hoặc tài
+sản số.
+
+\paragraph{Giới hạn hợp đồng.}
+Nghiên cứu chỉ xem xét basket Asian call và Asian worst-of put. Quyền chọn kiểu
+Mỹ, Bermudan, best-of, digital rainbow, barrier và autocallable không thuộc
+phạm vi thực nghiệm.
+
+\paragraph{Đặc tả Heston giản lược.}
+Heston dùng tham số động lực chung và không hiệu chỉnh từ bề mặt biến động hàm
+ý theo từng tài sản. Kết quả chỉ áp dụng cho đặc tả Heston tại
+Chương~\ref{chap:phuong-phap} \parencite{Dimitroff2011}.
+
+\paragraph{Một kiến trúc và một lịch huấn luyện.}
+Kiến trúc $10\to64\to64\to3$ và lịch 500+200 epoch được giữ cố định. LSTM,
+Transformer, mạng có vùng không giao dịch và lịch huấn luyện thích nghi không
+được so sánh.
+
+\paragraph{Chồng lấn lịch và hiệu chỉnh tĩnh.}
+Năm 2019 vừa thuộc cửa sổ hiệu chỉnh mô hình sinh dữ liệu vừa thuộc giai đoạn căng thẳng
+2019--2020. Mạng không học trực tiếp dữ liệu lịch sử, nhưng giai đoạn này không
+phải ngoài mẫu hoàn toàn đối với bước hiệu chỉnh mô hình sinh dữ liệu. Ba mô
+hình được hiệu chỉnh một lần và không được cập nhật theo cửa sổ cuốn.
+
+\paragraph{Seed thay thế và tính ghép cặp.}
+Checkpoint SBTS--worst-of put--$\kappa=0{,}95$--seed 3 phân kỳ và được thay
+bằng seed 10. Tổ hợp này có mười lần chạy hội tụ nhưng một quan sát không ghép
+cùng seed với GBM và Heston. Hạn chế này áp dụng cho các kiểm định liên quan
+đến tổ hợp trên.
+
+\paragraph{Giới hạn của $V_0^{*}$.}
+$V_0^{*}$ là nghiệm của bài toán hedging theo bình phương sai số dưới phân
+phối của mô hình sinh dữ liệu. Đại lượng này không phải giá trung hòa rủi ro,
+không phải giá thị trường và không bao gồm các yêu cầu vốn pháp định.
+
+\paragraph{Giới hạn nhận dạng cơ chế stress.}
+Kết quả xác định sự đảo chiều trong giai đoạn căng thẳng nhưng không đo trực tiếp số lân cận
+kernel hoặc khoảng cách từ trạng thái đánh giá đến tập tham chiếu. Cơ chế suy
+giảm ngoài miền dữ liệu chưa được kiểm định độc lập.
+
+\section{Hướng nghiên cứu tiếp theo}
+\label{sec:c5-future}
+
+Hướng thứ nhất là tái lập toàn bộ lưới với tập seed chung được xác định trước,
+đồng thời bổ sung bootstrap và kiểm định hoán vị cho mẫu nhỏ.
+
+Hướng thứ hai là đo số lân cận kernel có trọng số khác không, khoảng cách từ
+trạng thái đến tập tham chiếu và sai số hedging theo mức dịch chuyển phân
+phối.
+
+Hướng thứ ba là cập nhật SBTS theo cửa sổ cuốn, bổ sung dữ liệu căng thẳng và
+tính lại MCS trên cửa sổ đánh giá gần nhất.
+
+Hướng thứ tư là sử dụng quá trình tham chiếu có bước nhảy hoặc bổ sung các kịch
+bản căng thẳng có kiểm soát. Thực nghiệm cần giữ cùng thiết kế hợp đồng--mức
+giá thực hiện--seed giữa các mô hình.
+
+Hướng thứ năm là mở rộng sang autocallable worst-of, barrier rainbow, rổ nhiều
+tài sản, LSTM, Transformer và mạng có vùng không giao dịch.
+
+\section{Kết luận chương}
+
+Trong giai đoạn đại diện, SBTS có $\sigma(R)$ và $V_0^{*}$ thấp hơn hai mô hình tham số;
+MCS chỉ giữ SBTS tại sáu tổ hợp. Trong giai đoạn phục hồi, kết quả phụ thuộc vào loại
+hợp đồng. Trong giai đoạn căng thẳng, thứ hạng sai số hedging đảo chiều và MCS giữ nhiều mô
+hình tại năm trong sáu tổ hợp. Do đó, kết luận được xác định theo mô hình sinh
+dữ liệu, hợp đồng, hàm mục tiêu và giai đoạn thị trường.

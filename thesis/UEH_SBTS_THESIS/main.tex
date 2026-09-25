@@ -1,0 +1,72 @@
+% Cho phép XeLaTeX tự nạp locale tiếng Việt khi hệ thống không có
+% vietnamese.ldf riêng; không làm thay đổi định dạng của lớp UEH.
+\PassOptionsToPackage{provide=*}{babel}
+\documentclass{TKT-UEH}
+
+% -----------------------------------------------------------------------------
+% Gói bổ sung dùng chung
+% -----------------------------------------------------------------------------
+\usetikzlibrary{calc}
+\usepackage{indentfirst}
+\setlength{\parindent}{1cm}
+
+% Danh mục tài liệu tham khảo của luận văn
+\addbibresource{references.bib}
+
+% -----------------------------------------------------------------------------
+% Thông tin đề án
+% -----------------------------------------------------------------------------
+\setTKTStudentName{VŨ QUỐC KHÁNH}
+\setTKTThesisTitle{ỨNG DỤNG SCHRÖDINGER BRIDGE ĐA BIẾN TRONG DEEP HEDGING CHO QUYỀN CHỌN RAINBOW ĐA TÀI SẢN}
+\setTKTSpec{Toán kinh tế}
+\setTKTAdvisor{GS. TS. THÁI NGUYỄN}
+\setTKTYear{2026}
+\setTKTDay{\ldots}
+\setTKTMon{\ldots}
+\setTKTdeclar{Tôi cam đoan đề án này là công trình nghiên cứu của riêng tôi. Các số liệu, kết quả và trích dẫn được trình bày trung thực, có nguồn gốc rõ ràng và chưa từng được sử dụng để nhận bất kỳ học vị nào tại một cơ sở đào tạo khác.}
+
+\begin{document}
+
+% Trang bìa, lời cam đoan, mục lục, danh mục viết tắt, bảng và hình
+\TKTtrangdau
+
+% Tóm tắt tiếng Việt và tiếng Anh
+\TKTInput{trangbia/abstractvi.tex}
+\TKTInput{trangbia/abstracten.tex}
+
+% -----------------------------------------------------------------------------
+% Nội dung chính
+% -----------------------------------------------------------------------------
+\mainmatter
+\setcounter{chapter}{0}
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+% Đánh số trang ở giữa đầu trang theo hướng dẫn UEH
+\pagestyle{fancy}
+\fancypagestyle{plain}{%
+  \fancyhf{}%
+  \fancyhead[C]{\thepage}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \renewcommand{\footrulewidth}{0pt}%
+}
+\fancyhf{}
+\fancyhead[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\TKTInput{WholeBook.tex}
+
+% Tài liệu tham khảo
+\printrefs
+
+% -----------------------------------------------------------------------------
+% Phụ lục
+% -----------------------------------------------------------------------------
+\begin{TKTPhuluc}
+  \TKTfilePL{THÔNG SỐ THỰC NGHIỆM VÀ KIẾN TRÚC MẠNG}{phuluc/appendixA.tex}
+  \newpage
+  \TKTfilePL{BẢNG KẾT QUẢ BỔ SUNG}{phuluc/appendixB.tex}
+\end{TKTPhuluc}
+
+\end{document}

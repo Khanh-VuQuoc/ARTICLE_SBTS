@@ -1,0 +1,324 @@
+% =============================================================================
+% CHƯƠNG 4 — PHÂN TÍCH KẾT QUẢ NGHIÊN CỨU
+% Văn phong khoa học, thuật ngữ và cấu trúc đã được chuẩn hóa.
+% =============================================================================
+
+\chapter{PHÂN TÍCH KẾT QUẢ NGHIÊN CỨU}
+\label{chap:ket-qua}
+
+\section{Đặc điểm dữ liệu và kết quả hiệu chỉnh}
+\label{sec:c4-data-calibration}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Thống kê lợi suất log ngày trong giai đoạn hiệu chỉnh 2005--2019}
+\label{tab:c4-descriptive}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+& \textbf{AAPL} & \textbf{JPM} & \textbf{XOM}\\
+\midrule
+Độ biến động năm & 0,3232 & 0,3729 & 0,2341\\
+Kurtosis & 9,02 & 21,78 & 16,50\\
+Skewness & $-0,30$ & $-0,27$ & $-0,13$\\
+\midrule
+\multicolumn{4}{l}{\textit{Tương quan cặp}}\\
+AAPL--JPM & \multicolumn{3}{c}{0,399}\\
+AAPL--XOM & \multicolumn{3}{c}{0,377}\\
+JPM--XOM & \multicolumn{3}{c}{0,468}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Kurtosis của AAPL, JPM và XOM lần lượt bằng 9,02, 21,78 và 16,50, cao hơn mức
+3 của phân phối Gaussian. Skewness của cả ba chuỗi mang dấu âm. Tương quan cặp
+nằm trong khoảng 0,377--0,468. Các giá trị tương quan được tính trên toàn bộ
+giai đoạn hiệu chỉnh và không biểu diễn biến động của tương quan theo thời
+gian.
+
+SBTS sử dụng $(h^{*},K^{*})=(0{,}030,5)$. GBM sử dụng độ biến động và ma trận
+tương quan mẫu. Heston sử dụng phương sai dài hạn riêng cho từng tài sản và
+các tham số động lực chung theo đặc tả tại Chương~\ref{chap:phuong-phap}. Kết
+quả được diễn giải theo đúng ba cấu hình hiệu chỉnh này.
+
+\section{Đối chiếu phân phối của ba mô hình sinh dữ liệu}
+\label{sec:c4-distribution}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Độ trung thực phân phối của các quỹ đạo tổng hợp so với dữ liệu lịch sử}
+\label{tab:c4-distributional-fidelity}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Chỉ tiêu} & \textbf{Lịch sử} & \textbf{GBM} &
+\textbf{Heston} & \textbf{SBTS}\\
+\midrule
+Kurtosis bình quân & 15,75 & 3,00 & 4,54 & \textbf{15,28}\\
+$|\Delta\mathrm{Kurt}|$ & -- & 12,75 & 11,20 & \textbf{0,47}\\
+MAE tương quan & -- & \textbf{0,0002} & 0,040 & 0,034\\
+KS bình quân & -- & 0,091 & 0,059 & \textbf{0,031}\\
+$\widehat\lambda_L$ tại 5\% & 0,311 & 0,197 & 0,175 & \textbf{0,297}\\
+$|\Delta\lambda_L|$ & -- & 0,114 & 0,136 & \textbf{0,014}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+SBTS có sai lệch kurtosis bằng 0,47, KS bình quân bằng 0,031 và sai lệch phụ
+thuộc đuôi trái bằng 0,014. Các giá trị tương ứng của GBM là 12,75, 0,091 và
+0,114; của Heston là 11,20, 0,059 và 0,136.
+
+GBM có MAE tương quan bằng 0,0002 vì ma trận tương quan mẫu được sử dụng trực
+tiếp trong phân rã Cholesky. Heston có kurtosis và KS gần dữ liệu lịch sử hơn
+GBM, nhưng hệ số phụ thuộc đuôi trái bằng 0,175, thấp hơn mức 0,197 của GBM và
+0,311 của dữ liệu lịch sử.
+
+\section{Hiệu quả hedging tại ba giai đoạn thị trường}
+\label{sec:c4-performance}
+
+\subsection{Giai đoạn đại diện (2023--2025)}
+
+\begin{table}[H]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\caption{Độ lệch chuẩn sai số hedging $\sigma(R)$ trong giai đoạn đại diện (2023--2025)}
+\label{tab:c4-recent-main}
+\begin{tabular}{@{}llccccc@{}}
+\toprule
+\textbf{Hợp đồng} & $\boldsymbol\kappa$ & \textbf{GBM} & \textbf{Heston} &
+\textbf{SBTS} & \textbf{Giảm so với GBM} & $\boldsymbol p_{\mathrm{BH}}$\\
+\midrule
+Basket call & 0,95 & $0,0059\pm0,0005$ & $0,0056\pm0,0005$ &
+$\mathbf{0,0034\pm0,0005}$ & 42\% & $<0,001$\\
+Basket call & 1,00 & $0,0076\pm0,0005$ & $0,0074\pm0,0005$ &
+$\mathbf{0,0060\pm0,0011}$ & 21\% & 0,004\\
+Basket call & 1,05 & $0,0086\pm0,0004$ & $0,0082\pm0,0004$ &
+$\mathbf{0,0066\pm0,0008}$ & 22\% & $<0,001$\\
+\midrule
+Worst-of put & 0,95 & $0,0134\pm0,0010$ & $0,0133\pm0,0012$ &
+$\mathbf{0,0116\pm0,0013}$ & 13\% & 0,012\\
+Worst-of put & 1,00 & $0,0145\pm0,0010$ & $0,0133\pm0,0014$ &
+$\mathbf{0,0112\pm0,0019}$ & 23\% & 0,002\\
+Worst-of put & 1,05 & $0,0162\pm0,0012$ & $0,0145\pm0,0010$ &
+$\mathbf{0,0133\pm0,0020}$ & 18\% & 0,004\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Trong giai đoạn đại diện, SBTS có $\sigma(R)$ thấp nhất ở sáu tổ hợp hợp đồng--mức giá thực
+hiện. Mức giảm so với GBM nằm trong khoảng 13--42\%; mức giảm so với Heston
+nằm trong khoảng 8--38\%. Sáu so sánh SBTS--GBM có
+$p_{\mathrm{BH}}<0{,}05$. Năm trong sáu so sánh SBTS--Heston có khác biệt
+thống kê; worst-of put tại $\kappa=1{,}05$ chưa có khác biệt thống kê.
+
+Đối với basket call, mức giảm lớn nhất so với GBM bằng 42\% tại
+$\kappa=0{,}95$. Đối với worst-of put, mức giảm lớn nhất bằng 23\% tại
+$\kappa=1{,}00$. Basket call phụ thuộc vào trung bình của rổ; worst-of put phụ
+thuộc vào tài sản có giá trung bình thấp nhất.
+
+\subsection{Giai đoạn phục hồi (2021--2022)}
+
+Trong giai đoạn phục hồi, SBTS có $\sigma(R)$ thấp hơn GBM và Heston tại ba mức giá
+thực hiện của basket call, với $p_{\mathrm{BH}}<0{,}05$. Đối với worst-of put,
+GBM có $\sigma(R)$ thấp hơn SBTS tại $\kappa=0{,}95$ và $1{,}00$; Heston có
+$\sigma(R)$ thấp hơn SBTS tại $\kappa=1{,}05$. Các so sánh còn lại chưa có
+khác biệt thống kê sau điều chỉnh BH.
+
+\subsection{Giai đoạn căng thẳng (2019--2020)}
+
+Thứ hạng trong giai đoạn căng thẳng đảo chiều so với giai đoạn đại diện. Ở năm trong sáu tổ hợp của mỗi cặp
+SBTS--GBM và SBTS--Heston, mô hình tham số có $\sigma(R)$ thấp hơn với
+$p_{\mathrm{BH}}<0{,}05$. Tổ hợp worst-of put tại $\kappa=1{,}05$ có chênh lệch theo
+cùng hướng bất lợi cho SBTS nhưng chưa đạt ngưỡng sau điều chỉnh
+($p_{\mathrm{BH}}=0{,}09$).
+
+$\sigma(R)$ của cả ba mô hình sinh dữ liệu trong giai đoạn căng thẳng đều cao hơn trong giai đoạn đại diện.
+Kết quả chỉ xác định thứ hạng tương đối giữa ba cấu hình. Phân tích không kiểm
+định riêng mức độ co của hỗ trợ kernel, nên giới hạn ngoại suy của SBTS được
+ghi nhận như một cơ chế lý thuyết và không được xem là quan hệ nhân quả đã xác
+định.
+
+\subsection{So sánh tổng hợp tại ba giai đoạn}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Kết quả kiểm định từng cặp trên 18 tổ hợp giai đoạn--hợp đồng--mức giá thực hiện}
+\label{tab:c4-scoreboard}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Cặp so sánh} & \textbf{Mô hình thứ nhất thắng} &
+\textbf{Mô hình thứ hai thắng} & \textbf{Chưa phân biệt}\\
+\midrule
+SBTS so với GBM & \textbf{9} & 7 & 2\\
+SBTS so với Heston & \textbf{8} & 6 & 4\\
+Heston so với GBM & \textbf{3} & 2 & 13\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+SBTS có 9 tổ hợp tốt hơn GBM, 7 tổ hợp kém hơn và 2 tổ hợp chưa có khác biệt
+thống kê. So với Heston, SBTS có 8 tổ hợp tốt hơn, 6 tổ hợp kém hơn và 4 tổ
+hợp chưa có khác biệt thống kê. Các tổ hợp bất lợi cho SBTS tập trung trong
+giai đoạn căng thẳng và nhóm worst-of put của giai đoạn phục hồi.
+
+Cặp Heston--GBM có 13/18 tổ hợp chưa có khác biệt thống kê. Trong đặc tả được
+sử dụng, Heston không tạo mức giảm $\sigma(R)$ đồng đều so với GBM.
+
+\section{Kết quả của quy trình MSE--CVaR}
+\label{sec:c4-curriculum}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Thay đổi sau giai đoạn CVaR tại giai đoạn đại diện (2023--2025), $\kappa=1{,}00$}
+\label{tab:c4-curriculum}
+\begin{tabular}{@{}llccr@{}}
+\toprule
+\textbf{Hợp đồng} & \textbf{Mô hình sinh dữ liệu} & \textbf{Chỉ MSE} &
+\textbf{Sau CVaR} & \textbf{Mức giảm}\\
+\midrule
+Basket call & GBM & 0,0079 & 0,0076 & $+4,7\%$\\
+Basket call & Heston & 0,0072 & 0,0074 & $-2,7\%$\\
+Basket call & SBTS & 0,0074 & \textbf{0,0060} & \textbf{$+19,3\%$}\\
+\midrule
+Worst-of put & GBM & 0,0148 & 0,0145 & $+1,9\%$\\
+Worst-of put & Heston & 0,0131 & 0,0133 & $-1,3\%$\\
+Worst-of put & SBTS & 0,0099 & 0,0112 & $-13,4\%$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Dấu dương trong Bảng~\ref{tab:c4-curriculum} biểu thị $\sigma(R)$ giảm sau
+giai đoạn CVaR. Đối với basket call, $\sigma(R)$ của SBTS giảm 19,3\%; mức thay
+đổi của GBM và Heston lần lượt bằng $+4,7\%$ và $-2,7\%$. Đối với worst-of
+put, $\sigma(R)$ của SBTS tăng 13,4\%; mức thay đổi của GBM và Heston lần lượt
+bằng $+1,9\%$ và $-1,3\%$. Kết quả của giai đoạn CVaR phụ thuộc vào hợp đồng
+và mô hình sinh dữ liệu.
+
+\section{Mức vốn ban đầu $V_0^{*}$}
+\label{sec:c4-v0}
+
+\begin{table}[H]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Mức vốn ban đầu $V_0^{*}$, trung bình qua mười seed}
+\label{tab:c4-v0}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+& \multicolumn{3}{c}{\textbf{Basket call}}
+& \multicolumn{3}{c}{\textbf{Worst-of put}}\\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+\textbf{Mô hình sinh dữ liệu} & 0,95 & 1,00 & 1,05 & 0,95 & 1,00 & 1,05\\
+\midrule
+GBM & 0,0857 & 0,0587 & 0,0385 & 0,0990 & 0,1372 & 0,1796\\
+Heston & 0,0879 & 0,0591 & 0,0372 & 0,1105 & 0,1469 & 0,1881\\
+SBTS & \textbf{0,0696} & \textbf{0,0406} & \textbf{0,0210}
+& \textbf{0,0738} & \textbf{0,1118} & \textbf{0,1555}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+SBTS có $V_0^{*}$ thấp nhất tại sáu tổ hợp. Mức giảm so với GBM nằm trong
+khoảng 13--45\%; mức giảm so với Heston nằm trong khoảng 17--44\%. Dưới điều
+kiện bậc nhất của MSE, $V_0^{*}$ làm sai số hedging kỳ vọng bằng không dưới
+phân phối huấn luyện. Đại lượng này còn được gọi là giá bàng quan bậc hai
+(\textit{quadratic indifference price}).
+
+$V_0^{*}$ thấp hơn biểu thị mức vốn ban đầu thấp hơn trong cùng điều kiện hợp
+đồng và chi phí giao dịch. Kết quả này được xem xét cùng $\sigma(R)$. Trong
+giai đoạn đại diện, SBTS có cả $V_0^{*}$ và $\sigma(R)$ thấp hơn hai mô hình tham số. Trong
+giai đoạn căng thẳng, thứ hạng $\sigma(R)$ đảo chiều. Vì vậy, $V_0^{*}$ không được diễn giải
+tách khỏi kết quả hedging và không được xem là giá thị trường độc lập với
+mô hình.
+
+\section{Kết quả Model Confidence Set}
+\label{sec:c4-mcs}
+
+\begin{table}[H]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\caption{Thành viên Model Confidence Set ở mức ý nghĩa 10\%}
+\label{tab:c4-mcs}
+\begin{tabular}{@{}llccc@{}}
+\toprule
+\textbf{Giai đoạn} & \textbf{Hợp đồng} & $\boldsymbol\kappa=0,95$ &
+$\boldsymbol\kappa=1,00$ & $\boldsymbol\kappa=1,05$\\
+\midrule
+Căng thẳng & Basket call & \{GBM,Heston,SBTS\} & \{GBM,Heston,SBTS\} &
+\{GBM,Heston,SBTS\}\\
+Căng thẳng & Worst-of put & \{GBM,Heston,SBTS\} & \textbf{\{Heston\}} &
+\{GBM,Heston,SBTS\}\\
+\midrule
+Phục hồi & Basket call & \textbf{\{SBTS\}} & \{GBM,Heston,SBTS\} &
+\textbf{\{SBTS\}}\\
+Phục hồi & Worst-of put & \{GBM,Heston,SBTS\} & \textbf{\{GBM\}} &
+\{GBM,Heston\}\\
+\midrule
+Đại diện & Basket call & \textbf{\{SBTS\}} & \textbf{\{SBTS\}} &
+\textbf{\{SBTS\}}\\
+Đại diện & Worst-of put & \textbf{\{SBTS\}} & \textbf{\{SBTS\}} &
+\textbf{\{SBTS\}}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Trong giai đoạn đại diện, SBTS là thành viên duy nhất của MCS tại sáu tổ hợp. Trong
+giai đoạn phục hồi, SBTS là phần tử duy nhất tại hai tổ hợp basket call; GBM là phần tử
+duy nhất tại worst-of put với $\kappa=1{,}00$; các tổ hợp còn lại giữ từ hai
+đến ba mô hình. Trong giai đoạn căng thẳng, năm tổ hợp giữ cả ba mô hình; worst-of put với
+$\kappa=1{,}00$ chỉ giữ Heston.
+
+Tổng cộng, SBTS xuất hiện trong MCS tại 15/18 tổ hợp và là phần tử duy nhất tại
+8 tổ hợp. GBM và Heston cùng xuất hiện tại 9/18 tổ hợp; mỗi mô hình là phần tử
+duy nhất một lần.
+
+Kiểm định ghép cặp sử dụng chênh lệch trong từng seed. MCS đánh giá đồng thời
+ba mô hình và sử dụng phân tán giữa các seed. Vì vậy, một tổ hợp có thể có
+khác biệt trong kiểm định ghép cặp nhưng vẫn giữ nhiều mô hình trong MCS.
+
+\section{Thảo luận kết quả}
+\label{sec:c4-discussion}
+
+\subsection{Kết quả tại giai đoạn đại diện}
+
+Trên dữ liệu giai đoạn hiệu chỉnh, SBTS có sai lệch kurtosis, KS và sai lệch
+phụ thuộc đuôi trái thấp nhất. Trong giai đoạn đại diện, chiến lược được huấn luyện bằng dữ liệu SBTS có $\sigma(R)$ thấp
+nhất tại sáu tổ hợp. MCS giữ SBTS là phần tử duy nhất tại cả sáu tổ hợp. Kiến
+trúc mạng, số quỹ đạo, hợp đồng, chi phí giao dịch và quy trình tối ưu được giữ
+cố định giữa ba mô hình sinh dữ liệu.
+
+\subsection{Sự đảo chiều dưới dịch chuyển phân phối}
+
+Trong giai đoạn phục hồi, thứ hạng của worst-of put khác thứ hạng của basket call.
+Trong giai đoạn căng thẳng, thứ hạng của SBTS đảo chiều so với giai đoạn đại diện tại năm trong sáu tổ hợp
+của mỗi cặp so sánh. SBTS ước lượng chuyển tiếp từ lân cận thực nghiệm; GBM và
+Heston sinh nhiễu từ phân phối tham số. Nghiên cứu chưa đo trực tiếp số lân cận
+kernel trong từng cửa sổ đánh giá, nên không phân rã mức đóng góp của miền hỗ
+trợ vào sự đảo chiều.
+
+\subsection{Lựa chọn mô hình sinh dữ liệu theo từng giai đoạn}
+
+Trong giai đoạn đại diện, kiểm định từng cặp và MCS đều lựa chọn SBTS. Trong giai đoạn phục hồi,
+SBTS được lựa chọn cho basket call, trong khi một số tổ hợp worst-of put lựa
+chọn GBM hoặc Heston. Trong giai đoạn căng thẳng, MCS giữ cả ba mô hình tại năm trong sáu tổ
+hợp. Vì vậy, thứ hạng được báo cáo riêng theo giai đoạn, hợp đồng và mức giá
+thực hiện.
+
+Checkpoint MSE và CVaR cũng tạo kết quả khác nhau. Sau giai đoạn CVaR,
+$\sigma(R)$ của basket call SBTS giảm 19,3\%, trong khi $\sigma(R)$ của
+worst-of put SBTS tăng 13,4\% tại $\kappa=1{,}00$. Việc lựa chọn mô hình sinh
+dữ liệu được thực hiện cùng với việc lựa chọn hàm mục tiêu huấn luyện.
+
+\section{Tóm tắt chương}
+
+Trên dữ liệu giai đoạn hiệu chỉnh, SBTS có sai lệch kurtosis, KS và phụ thuộc
+đuôi trái thấp nhất. Trong giai đoạn đại diện,
+SBTS có $\sigma(R)$ thấp nhất và là phần tử duy nhất của MCS tại sáu tổ hợp.
+Trong giai đoạn phục hồi, kết quả khác nhau giữa basket call và worst-of put. Trong
+giai đoạn căng thẳng, mô hình tham số có $\sigma(R)$ thấp hơn SBTS tại năm trong sáu tổ hợp
+của mỗi cặp so sánh. SBTS có $V_0^{*}$ thấp nhất tại sáu tổ hợp, nhưng thứ hạng
+này được diễn giải cùng kết quả hedging theo từng giai đoạn thị trường.

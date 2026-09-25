@@ -1,0 +1,411 @@
+% =============================================================================
+% CHƯƠNG 2 — LƯỢC KHẢO VÀ CƠ SỞ LÝ THUYẾT
+% Văn phong khoa học, thuật ngữ và cấu trúc đã được chuẩn hóa.
+% =============================================================================
+
+\chapter{LƯỢC KHẢO VÀ CƠ SỞ LÝ THUYẾT}
+\label{chap:co-so-ly-thuyet}
+
+\section{Quyền chọn rainbow và bài toán hedging rủi ro}
+\label{sec:c2-rainbow}
+
+\subsection{Cấu trúc khoản thanh toán đa tài sản}
+
+Quyền chọn rainbow là nhóm sản phẩm phái sinh có khoản thanh toán phụ thuộc
+đồng thời vào từ hai tài sản cơ sở trở lên. Khác với quyền chọn đơn tài sản,
+giá trị của quyền chọn rainbow chịu tác động của phân phối biên từng tài sản
+và của cấu trúc phụ thuộc chéo, đặc biệt là sự đồng biến trong các giai đoạn
+cực đoan \parencite{Johnson1987,Wystup2006}. Khi khoản thanh toán phụ
+thuộc vào trung bình theo thời gian, phân phối của toàn bộ quỹ đạo trở thành
+đối tượng cần mô hình hóa, thay vì chỉ phân phối giá cuối kỳ.
+
+Với $d$ tài sản, ký hiệu
+\begin{equation}
+    \bar R_i=\frac{1}{N}\sum_{n=1}^{N}\frac{S_n^i}{S_0^i},
+    \qquad i=1,\ldots,d,
+    \label{eq:c2-path-average}
+\end{equation}
+là giá chuẩn hóa trung bình theo thời gian của tài sản $i$ trong $N$ ngày giao
+dịch. Hai khoản thanh toán được nghiên cứu là
+\begin{align}
+    \Phi_{\mathrm{basket}}
+    &=\left(\frac{1}{d}\sum_{i=1}^{d}\bar R_i-\kappa\right)^{+},
+    \label{eq:c2-basket-payoff}\\
+    \Phi_{\mathrm{worst}}
+    &=\left(\kappa-\min_{1\le i\le d}\bar R_i\right)^{+},
+    \label{eq:c2-worst-payoff}
+\end{align}
+trong đó $(x)^{+}=\max(x,0)$ và $\kappa$ là mức giá thực hiện chuẩn hóa. Công thức
+\eqref{eq:c2-basket-payoff} là quyền chọn mua Asian trên rổ tài sản
+(\textit{basket Asian call}); công thức \eqref{eq:c2-worst-payoff} là quyền
+chọn bán Asian trên tài sản kém nhất (\textit{Asian worst-of put}).
+
+Hai khoản thanh toán phụ thuộc vào những thành phần khác nhau của phân phối đa biến. Basket Asian
+call phụ thuộc vào trung bình chéo nên nhạy với xu hướng chung của rổ. Ngược
+lại, worst-of put sử dụng toán tử cực tiểu nên nhạy với tài sản suy giảm mạnh
+nhất và với phụ thuộc đuôi trái giữa các tài sản. Phép lấy trung bình theo thời
+gian làm giảm tác động của một quan sát riêng lẻ, nhưng đồng thời khiến hợp
+đồng phụ thuộc đường đi và làm mất phần lớn công thức đóng vốn có ở quyền chọn
+châu Âu \parencite{KemnaVorst1990}.
+
+\subsection{Chi phí giao dịch và thị trường không hoàn chỉnh}
+
+Trong mô hình Black--Scholes lý tưởng, một quyền chọn có thể được sao chép bằng
+danh mục tự tài trợ được tái cân bằng liên tục \parencite{BlackScholes1973}.
+Với $d$ tài sản, delta trở thành một vector gồm $d$ vị thế. Tuy nhiên, khi mỗi
+lần thay đổi vị thế đều phát sinh chi phí tỷ lệ, tổng chi phí có thể tăng nhanh
+theo tần suất tái cân bằng; chiến lược sao chép liên tục vì thế không còn khả
+thi \parencite{Leland1985}. Đối với khoản thanh toán Asian đa tài sản, khó khăn còn đến
+từ việc không có công thức delta đóng và từ sai số mô hình của phân phối đồng
+thời.
+
+Do đó, chiến lược giao dịch được tối ưu tại các thời điểm rời rạc để giảm sai
+số hedging sau chi phí. Trong thị trường không hoàn chỉnh, không nhất thiết
+tồn tại chiến lược làm sai số bằng không trên mọi quỹ đạo. Nghiệm phụ thuộc vào
+hàm rủi ro được sử dụng.
+
+\section{Từ hedging rủi ro cổ điển đến \textit{Deep Hedging}}
+\label{sec:c2-deep-hedging}
+
+\subsection{Sao chép cổ điển và các giới hạn}
+
+Lý thuyết sao chép cổ điển là chuẩn tham chiếu của bài toán hedging: nếu thị
+trường hoàn hảo, động học tài sản đúng mô hình, giao dịch liên tục và không có
+chi phí, giá quyền chọn được xác định bởi danh mục sao chép. Các giả định này
+không đồng thời thỏa mãn trong thiết kế của luận văn. Hợp đồng phụ thuộc đường
+đi, giao dịch theo ngày, có chi phí tỷ lệ, và động học đa tài sản không biết
+trước. Vì vậy, sai số hedging là biến ngẫu nhiên không thể loại bỏ hoàn
+toàn.
+
+Trong thị trường không hoàn chỉnh, chiến lược có thể được xác định bằng cách
+tối thiểu hóa một hàm rủi ro của sai số. Cách tiếp cận mean--variance chọn vị
+thế để giảm bình phương sai số \parencite{FollmerSondermann1986,Schweizer2010};
+các cách tiếp cận hướng đuôi sử dụng VaR hoặc CVaR để tập trung vào các tổn thất
+lớn. Như vậy, mục tiêu chuyển từ ``sao chép chính xác'' sang ``tối ưu chính
+sách theo tiêu chuẩn rủi ro đã công bố''.
+
+\subsection{Mạng nơ-ron như một chính sách hedging động}
+
+\textit{Deep Hedging} tham số hóa chính sách giao dịch bằng mạng nơ-ron
+\parencite{Buehler2019}. Tại thời điểm $t$, trạng thái $X_t$ được ánh xạ thành
+vector vị thế
+\begin{equation}
+    \delta_t=f_{\theta}(X_t),
+    \label{eq:c2-neural-policy}
+\end{equation}
+trong đó $\theta$ là tập tham số được học từ các quỹ đạo mô phỏng. Hàm mất mát
+được tính trên khoản thanh toán, lãi/lỗ của danh mục hedging và chi phí giao dịch của từng quỹ đạo;
+gradient được truyền ngược qua toàn bộ chuỗi tái cân bằng. Phương pháp này xử
+lý trực tiếp nhiều tài sản, khoản thanh toán phi tuyến, biến trạng thái phụ thuộc đường
+đi và chi phí giao dịch mà không cần một công thức định giá đóng.
+
+Chính sách được ước lượng theo phân phối quỹ đạo huấn luyện. Sai lệch về đuôi
+phân phối, tương quan theo thời gian hoặc sự chuyển dịch giữa các giai đoạn thị
+trường làm thay đổi kết quả hedging trên dữ liệu thực. Do đó, nghiên cứu giữ
+cố định kiến trúc mạng và quy trình tối ưu, đồng thời chỉ thay đổi mô hình sinh
+dữ liệu.
+
+\section{Thước đo rủi ro và mức vốn ban đầu}
+\label{sec:c2-risk-measures}
+
+\subsection{Sai số bình phương trung bình}
+
+Ký hiệu $R=\Phi-V_T$ là phần nghĩa vụ chưa được bù đắp tại đáo hạn. Hàm mất
+mát bình phương là
+\begin{equation}
+    \rho_{\mathrm{MSE}}(R)=\mathbb{E}[R^2].
+    \label{eq:c2-mse}
+\end{equation}
+Mọi quan sát trong mẫu đều đóng góp vào gradient của MSE. Hàm mất mát này xử
+lý đối xứng sai số dương và âm. MSE được dùng để ước lượng chiến lược theo tiêu
+chuẩn bình phương sai số và xác định $V_0^{*}$.
+
+\subsection{Value-at-Risk và Conditional Value-at-Risk}
+
+$\mathrm{VaR}_{\alpha}(R)$ là phân vị mức $\alpha$ của phân phối sai số.
+$\mathrm{CVaR}_{\alpha}(R)$ là giá trị trung bình của sai số trong phần đuôi
+bất lợi vượt ngưỡng VaR. Theo biểu diễn Rockafellar--Uryasev
+\parencite{Rockafellar2000},
+\begin{equation}
+    \mathrm{CVaR}_{\alpha}(R)
+    =\min_{\nu\in\mathbb{R}}
+    \left\{\nu+\frac{1}{1-\alpha}
+    \mathbb{E}\left[(R-\nu)^{+}\right]\right\}.
+    \label{eq:c2-ru}
+\end{equation}
+Với $\alpha=0{,}95$, gradient tập trung vào khoảng $5\%$ quan sát có sai số lớn
+nhất. Biểu diễn \eqref{eq:c2-ru} biến CVaR thành một mục tiêu có thể tối ưu bằng
+mini-batch thông qua tham số phụ $\nu$.
+
+\subsection{Mức vốn ban đầu $V_0^{*}$}
+
+Trong giai đoạn MSE, số tiền ban đầu $V_0$ được học cùng chính sách. Nếu
+\begin{equation}
+    R=\Phi-V_0-\mathrm{PnL}(\delta)+\mathrm{cost}(\delta),
+\end{equation}
+thì điều kiện bậc nhất theo $V_0$ cho
+\begin{equation}
+    \frac{\partial}{\partial V_0}\mathbb{E}[R^2]
+    =-2\mathbb{E}[R]=0.
+    \label{eq:c2-v0-foc}
+\end{equation}
+Do đó, $V_0^{*}$ làm sai số kỳ vọng bằng không dưới phân phối huấn luyện. Đại
+lượng này được gọi là giá bàng quan bậc hai (\textit{quadratic indifference
+price}) trong tiêu chuẩn trung bình--phương sai
+\parencite{FollmerSondermann1986,Schweizer2010}. Trong nghiên cứu này,
+$V_0^{*}$ được sử dụng như mức vốn ban đầu cần thiết để thực hiện chiến lược.
+Đại lượng này phụ thuộc vào mô hình sinh dữ liệu, chiến lược và chi phí giao
+dịch; nó không phải giá thị trường hoặc giá phi arbitrage duy nhất.
+
+CVaR có tính tịnh tiến:
+$\mathrm{CVaR}_{\alpha}(X-a)=\mathrm{CVaR}_{\alpha}(X)-a$. Nếu tiếp tục cho
+$V_0$ học tự do trong giai đoạn CVaR, đạo hàm theo $V_0$ là hằng số và bài toán
+không có nghiệm dừng hữu hạn. Vì vậy, quy trình thực nghiệm xác định $V_0^{*}$
+ở giai đoạn MSE rồi cố định tham số này khi tinh chỉnh CVaR.
+
+\section{Các mô hình sinh dữ liệu tài chính đa biến}
+\label{sec:c2-generators}
+
+\subsection{Chuyển động Brown hình học đa biến}
+
+GBM đa biến giả định
+\begin{equation}
+    \frac{\mathrm{d}S_t^i}{S_t^i}
+    =\mu_i\,\mathrm{d}t+\sigma_i\,\mathrm{d}W_t^i,
+    \qquad
+    \mathrm{Corr}(\mathrm{d}W_t^i,\mathrm{d}W_t^j)=\rho_{ij}.
+    \label{eq:c2-gbm}
+\end{equation}
+GBM được hiệu chỉnh trực tiếp từ lợi suất trung bình, độ biến động và ma trận
+tương quan mẫu. Giả định lợi suất log Gaussian cùng biến động và tương quan
+không đổi không mô tả đuôi dày, bất đối xứng và phụ thuộc đuôi của dữ liệu cổ
+phiếu.
+
+\subsection{Mô hình Heston đa biến}
+
+Heston đưa thêm phương sai ngẫu nhiên vào từng tài sản
+\parencite{Heston1993}:
+\begin{align}
+    \mathrm{d}\log S_t^i
+    &=\left(\mu_i-\tfrac12 v_t^i\right)\mathrm{d}t
+      +\sqrt{v_t^i}\,\mathrm{d}W_t^{S,i},\\
+    \mathrm{d}v_t^i
+    &=\kappa_v(\vartheta_i-v_t^i)\mathrm{d}t
+      +\xi\sqrt{v_t^i}\,\mathrm{d}W_t^{v,i}.
+    \label{eq:c2-heston}
+\end{align}
+Tương quan âm giữa cú sốc giá và phương sai tạo hiệu ứng đòn bẩy. Phương sai
+ngẫu nhiên tạo cụm biến động và đuôi dày hơn GBM. Trong trường hợp đa tài sản,
+đặc tả giản lược sử dụng chung $\kappa_v$, $\xi$ và tương quan đòn bẩy giữa các
+tài sản để giới hạn số tham số \parencite{Dimitroff2011}. Đặc tả này không mô
+hình hóa riêng động học phương sai của từng tài sản.
+
+\subsection{Các mô hình sinh dựa trên dữ liệu}
+
+Các mô hình sinh dựa trên dữ liệu ước lượng phân phối và cấu trúc phụ thuộc từ
+mẫu lịch sử. Kết quả ước lượng phụ thuộc vào kích thước mẫu, phương pháp làm
+trơn và miền hỗ trợ của dữ liệu. SBTS được xây dựng từ bài toán entropy trên
+không gian quỹ đạo và được triển khai trên dữ liệu hữu hạn bằng ước lượng
+kernel \parencite{Hamdouche2023}.
+
+\section{Nền tảng lý thuyết của \textit{Schrödinger Bridge}}
+\label{sec:c2-sb-theory}
+
+\subsection{Bài toán entropy trên không gian quỹ đạo}
+
+Cho $\Omega=C([0,T],\mathbb{R}^{d})$ là không gian các quỹ đạo liên tục và
+$\mathbb{P}_{W}$ là độ đo Wiener tham chiếu. Với một độ đo quỹ đạo
+$\mathbb{Q}\ll\mathbb{P}_{W}$, độ phân kỳ Kullback--Leibler là
+\begin{equation}
+    \mathrm{KL}(\mathbb{Q}\|\mathbb{P}_{W})
+    =\mathbb{E}^{\mathbb{Q}}
+    \left[\log\frac{\mathrm{d}\mathbb{Q}}
+    {\mathrm{d}\mathbb{P}_{W}}\right].
+    \label{eq:c2-path-kl}
+\end{equation}
+Bài toán \textit{Schrödinger Bridge} hai biên chọn độ đo quỹ đạo gần độ đo tham chiếu nhất
+theo KL nhưng đồng thời khớp phân phối tại đầu và cuối kỳ
+\parencite{Leonard2014}:
+\begin{equation}
+    \mathbb{Q}^{*}
+    =\arg\min_{\mathbb{Q}}
+    \mathrm{KL}(\mathbb{Q}\|\mathbb{P}_{W})
+    \quad\text{với}\quad
+    \mathbb{Q}_{0}=\mu_0,\quad \mathbb{Q}_{T}=\mu_T.
+    \label{eq:c2-classical-sb}
+\end{equation}
+Bài toán này liên hệ với vận tải tối ưu có điều chuẩn entropy và điều khiển
+ngẫu nhiên \parencite{ChenGeorgiouPavon2021}.
+
+Đối với chuỗi thời gian, ràng buộc chỉ ở hai đầu chưa đủ. Mở rộng nhiều biên
+đòi hỏi
+\begin{equation}
+    \mathbb{Q}_{t_j}=\mu_{t_j},
+    \qquad j=0,1,\ldots,N,
+    \label{eq:c2-multimarginal-sb}
+\end{equation}
+để độ đo quỹ đạo nhất quán với chuỗi phân phối quan sát tại nhiều thời điểm.
+Hamdouche và cộng sự chuyển ý tưởng này thành mô hình sinh chuỗi thời gian,
+trong đó chuyển tiếp kế tiếp được điều kiện hóa bởi phần lịch sử gần nhất
+\parencite{Hamdouche2023}.
+
+\subsection{Từ HJB đến phương trình nhiệt bằng Cole--Hopf}
+
+Trên một khoảng $[t_j,t_{j+1})$, biểu diễn điều khiển ngẫu nhiên của bài toán
+KL dẫn đến một hàm giá trị $V(t,x)$ thỏa phương trình Hamilton--Jacobi--Bellman
+\begin{equation}
+    \partial_t V+\frac12\Delta V-\frac12\|\nabla V\|^2=0.
+    \label{eq:c2-hjb}
+\end{equation}
+Phương trình \eqref{eq:c2-hjb} phi tuyến do hạng tử bình phương gradient. Đặt
+\begin{equation}
+    \psi(t,x)=\exp[-V(t,x)],
+    \label{eq:c2-cole-hopf}
+\end{equation}
+ta có
+\begin{align*}
+    \partial_t V&=-\frac{\partial_t\psi}{\psi},
+    &\nabla V&=-\frac{\nabla\psi}{\psi},
+    &\Delta V&=-\frac{\Delta\psi}{\psi}
+      +\frac{\|\nabla\psi\|^2}{\psi^2}.
+\end{align*}
+Thế vào \eqref{eq:c2-hjb}, hai hạng tử bậc hai triệt tiêu và thu được phương
+trình nhiệt lùi tuyến tính
+\begin{equation}
+    \partial_t\psi+\frac12\Delta\psi=0.
+    \label{eq:c2-backward-heat}
+\end{equation}
+Phép biến đổi Cole--Hopf chuyển phương trình HJB phi tuyến thành phương trình
+nhiệt tuyến tính. Nghiệm của phương trình tuyến tính được biểu diễn bằng nhân
+nhiệt Brown. Chuyển tiếp giữa hai thời điểm quan sát sau đó được ước lượng từ
+các điểm cuối lịch sử bằng trọng số kernel.
+
+\subsection{Từ nghiệm tuyến tính đến quy tắc chuyển tiếp thực nghiệm}
+
+Gọi $p_W(t,x;t_{j+1},y)$ là mật độ chuyển tiếp Brown. Nghiệm của
+\eqref{eq:c2-backward-heat} với điều kiện cuối $\rho_{j+1}$ có dạng
+\begin{equation}
+    \psi(t,x)
+    =\int p_W(t,x;t_{j+1},y)\rho_{j+1}(y\mid\mathcal{H}_j)\,\mathrm{d}y,
+    \label{eq:c2-heat-solution}
+\end{equation}
+trong đó $\mathcal{H}_j$ là thông tin quá khứ tại thời điểm $t_j$. Trên mẫu hữu
+hạn, phân phối có điều kiện trong \eqref{eq:c2-heat-solution} được thay bằng
+phân phối thực nghiệm của các quỹ đạo lịch sử gần trạng thái hiện tại. Vì vậy,
+việc triển khai không cần giải PDE trên một lưới không gian nhiều chiều; bài
+toán trở thành tính trọng số kernel và trung bình các chuyển tiếp quan sát.
+
+\section{Mô hình SBTS thực nghiệm}
+\label{sec:c2-sbts}
+
+\subsection{Xấp xỉ Nadaraya--Watson}
+
+Giả sử có $M$ quỹ đạo tham chiếu
+$\{\mathbf{X}^{(m)}\}_{m=1}^{M}$. Kỳ vọng có điều kiện của một hàm $g$ được
+xấp xỉ bằng bộ ước lượng Nadaraya--Watson
+\parencite{Nadaraya1964,Watson1964}:
+\begin{equation}
+    \widehat{\mathbb{E}}[g(X_{t_{j+1}})\mid\mathcal{H}_j]
+    =\frac{\sum_{m=1}^{M}W_{K}^{(m)}
+    g(X_{t_{j+1}}^{(m)})}
+    {\sum_{m=1}^{M}W_{K}^{(m)}}.
+    \label{eq:c2-nw}
+\end{equation}
+Trọng số được xây dựng từ tích các kernel trên $K$ quan sát gần nhất:
+\begin{equation}
+    W_{K}^{(m)}
+    =\prod_{\ell=\max(0,j-K+1)}^{j}
+    \mathcal{K}_{h}
+    \left(\mathbf{x}_{\ell}-\mathbf{X}_{t_{\ell}}^{(m)}\right),
+    \qquad
+    \mathcal{K}_{h}(u)
+    =(h^2-\|u\|^2)^2\mathbf{1}_{\{\|u\|<h\}}.
+    \label{eq:c2-kernel}
+\end{equation}
+Băng thông (\textit{bandwidth}) $h$ kiểm soát bán kính lân cận, còn $K$ kiểm soát chiều dài bộ nhớ.
+$h$ quá nhỏ hoặc $K$ quá lớn làm số quỹ đạo có trọng số khác không giảm mạnh;
+$h$ quá lớn hoặc $K$ quá nhỏ làm ước lượng quá trơn và mất thông tin điều kiện.
+
+Trong thuật toán SBTS, trọng số lịch sử ở \eqref{eq:c2-kernel} được kết hợp
+với nhân Brown xuất phát từ nghiệm Cole--Hopf. Kết quả là một quy tắc chuyển
+tiếp lấy trung bình các dịch chuyển kế tiếp của quỹ đạo tham chiếu, với trọng
+số cao hơn cho những quỹ đạo vừa giống lịch sử gần đây vừa phù hợp với trạng
+thái nội suy hiện tại. Sau đó, nhiễu Gaussian ở các bước Euler nhỏ được cộng
+vào để tạo ra quỹ đạo mới. Chương 3 trình bày cấu hình số cụ thể dùng trong
+thực nghiệm.
+
+\subsection{Mở rộng đa biến và lựa chọn siêu tham số}
+
+Mở rộng đa biến được thực hiện bằng cách thay khoảng cách tuyệt đối một chiều
+bằng chuẩn Euclid của vector lợi suất $d$ chiều. Cùng một kernel vì thế đồng
+thời đánh giá độ gần của toàn bộ rổ tài sản. Trong nghiên cứu, $(h,K)$ được
+chọn theo MSE dự báo trên phần dữ liệu giữ lại:
+\begin{equation}
+    (h^{*},K^{*})
+    =\arg\min_{(h,K)\in\mathcal{G}_{h}\times\mathcal{G}_{K}}
+      \mathrm{MSE}_{\mathrm{holdout}}(h,K).
+    \label{eq:c2-hk-selection}
+\end{equation}
+Quy trình lựa chọn bằng dữ liệu giúp giảm tính tùy ý nhưng không loại bỏ lời
+nguyền số chiều: khi $d$ hoặc $K$ tăng, lân cận kernel trở nên thưa và nhu cầu
+số quỹ đạo tham chiếu tăng nhanh.
+
+\subsection{Khả năng nội suy và giới hạn dưới dịch chuyển phân phối}
+
+Kernel có hỗ trợ hữu hạn nên SBTS thực hiện nội suy từ các cửa sổ lịch sử. Khi
+trạng thái đánh giá cách xa tập tham chiếu, số quỹ đạo có trọng số dương giảm
+và phương sai ước lượng tăng. Chương 4 kiểm tra thứ hạng của ba mô hình sinh
+dữ liệu tại giai đoạn đại diện, phục hồi và căng thẳng. Nghiên cứu không thực
+hiện kiểm định nhân quả riêng cho cơ chế suy giảm ngoài miền dữ liệu.
+
+\section{Lược khảo nghiên cứu thực nghiệm liên quan}
+\label{sec:c2-empirical-review}
+
+\textit{Deep Hedging} tối ưu trực tiếp chính sách giao dịch trong điều kiện thị
+trường không hoàn chỉnh, khoản thanh toán phi tuyến và chi phí giao dịch
+\parencite{Buehler2019}. Các nghiên cứu tiếp theo mở rộng hàm rủi ro, mô hình
+biến động và kiến trúc mạng, nhưng phần lớn tập trung vào quyền chọn đơn tài
+sản. Bằng chứng về \textit{Deep Hedging} cho quyền chọn Asian rainbow với mô
+hình sinh dữ liệu đa tài sản còn hạn chế.
+
+SBTS tạo chuỗi mới từ phân phối và chuyển tiếp thực nghiệm
+\parencite{Hamdouche2023}. Độ phù hợp thống kê của dữ liệu tổng hợp và kết quả
+hedging rủi ro là hai đối tượng đánh giá khác nhau. Nghiên cứu này kiểm tra
+trực tiếp sai số của chiến lược trên dữ liệu thị trường, bên cạnh các chỉ tiêu
+phân phối.
+
+Về suy luận, kiểm định từng cặp trả lời liệu hai mô hình sinh dữ liệu có khác nhau trong một
+tổ hợp thực nghiệm, trong khi Model Confidence Set (MCS) lựa chọn một tập mô hình
+không thể phân biệt với mô hình tốt nhất khi nhiều ứng viên được so sánh đồng
+thời \parencite{HansenLundeNason2011}. Kết hợp hai cách nhìn giúp tránh kết
+luận dựa duy nhất vào một thứ hạng trung bình có thể không ổn định qua seed.
+
+\section{Quy trình phân tích của nghiên cứu}
+\label{sec:c2-framework}
+
+Từ cơ sở trên, nghiên cứu tổ chức quan hệ phân tích theo chuỗi sau:
+\begin{enumerate}[label=(\arabic*)]
+    \item dữ liệu lịch sử xác định tham số hoặc phân phối thực nghiệm của từng
+    mô hình sinh dữ liệu;
+    \item mỗi mô hình sinh dữ liệu tạo tập quỹ đạo huấn luyện có cùng kích thước và thời
+    hạn;
+    \item cùng một kiến trúc \textit{Deep Hedging} được huấn luyện trên từng tập quỹ
+    đạo bằng quy trình MSE--CVaR;
+    \item các checkpoint được đánh giá trên cùng các cửa sổ lịch sử tại ba
+    giai đoạn thị trường;
+    \item hiệu quả được so sánh bằng độ lệch chuẩn sai số, CVaR, $V_0^{*}$,
+    kiểm định ghép cặp có điều chỉnh nhiều phép thử và MCS.
+\end{enumerate}
+Ba lớp kết quả gồm độ phù hợp phân phối của mô hình sinh dữ liệu, hiệu quả
+hedging và mức ổn định giữa các giai đoạn thị trường. Kết luận về hiệu quả
+được xác định từ sai số hedging trên dữ liệu đánh giá. Các mô-men của dữ liệu
+tổng hợp chỉ được dùng để đánh giá độ phù hợp phân phối.
+
+\section{Tóm tắt chương}
+
+Chương 2 trình bày hai quyền chọn Asian rainbow, \textit{Deep Hedging}, MSE,
+CVaR và $V_0^{*}$. Ba mô hình sinh dữ liệu gồm GBM, Heston và SBTS. Đối với
+SBTS, bài toán KL nhiều biên được tuyến tính hóa bằng phép biến đổi Cole--Hopf
+và được ước lượng bằng phương pháp Nadaraya--Watson đa biến. Khả năng nội suy
+của kernel là cơ sở để đánh giá kết quả tại ba giai đoạn thị trường trong các
+chương tiếp theo.

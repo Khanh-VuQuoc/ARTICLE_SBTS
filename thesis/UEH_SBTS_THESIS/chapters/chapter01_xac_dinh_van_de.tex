@@ -1,0 +1,413 @@
+% =============================================================================
+% CHƯƠNG 1 — XÁC ĐỊNH VẤN ĐỀ NGHIÊN CỨU
+% Bản thảo tiếng Việt để duyệt nội dung trước khi ghép vào luận văn UEH.
+% Nguồn nội dung chính: Main GBM_HESTON_SBTS_final (1).tex và các notebook 25_*.
+% =============================================================================
+
+\chapter{XÁC ĐỊNH VẤN ĐỀ NGHIÊN CỨU}
+\label{chap:xac-dinh-van-de}
+
+\section{Bối cảnh nghiên cứu}
+\label{sec:boi-canh-nghien-cuu}
+
+Quyền chọn đa tài sản (\textit{rainbow options}) là nhóm sản phẩm phái sinh có
+giá trị thanh toán phụ thuộc đồng thời vào diễn biến của nhiều tài sản cơ sở.
+Khác với quyền chọn đơn tài sản, cấu trúc thanh toán của quyền chọn rainbow có
+thể sử dụng trung bình của một rổ tài sản, giá trị lớn nhất hoặc nhỏ nhất trong
+rổ, hoặc kết hợp các đặc điểm này với phép lấy trung bình theo thời gian. Vì
+vậy, rủi ro của hợp đồng không chỉ phụ thuộc vào phân phối biên của từng tài
+sản mà còn phụ thuộc vào cấu trúc phụ thuộc chéo, sự đồng biến trong các giai
+đoạn căng thẳng và toàn bộ quỹ đạo giá trong thời hạn hợp đồng
+\parencite{Johnson1987,Wystup2006}.
+
+Nghiên cứu xem xét hai hợp đồng đại diện. Hợp đồng thứ nhất là quyền chọn mua
+Asian trên rổ tài sản (\textit{basket Asian call}); khoản thanh toán phụ thuộc
+vào mức giá bình quân theo thời gian của cả rổ so với giá thực hiện. Hợp đồng
+thứ hai là quyền chọn bán Asian trên tài sản kém nhất
+(\textit{Asian worst-of put}); khoản thanh toán phụ thuộc vào tài sản có mức
+giá bình quân thấp nhất trong rổ. Nói cách khác, \textit{basket Asian call}
+phản ánh diễn biến chung của cả rổ, còn \textit{Asian worst-of put} tập trung
+vào rủi ro đến từ thành phần suy giảm mạnh nhất. Nhờ đó, hai hợp đồng cho phép
+đánh giá bộ sinh quỹ đạo ở cả điều kiện thị trường thuận lợi lẫn những tình
+huống một hoặc nhiều tài sản diễn biến bất lợi.
+
+Những khó khăn trong phòng ngừa rủi ro có thể được hình dung rõ hơn khi so
+sánh với trường hợp Black--Scholes quen thuộc. Đối với quyền chọn châu Âu trên
+một tài sản không trả cổ tức, mô hình Black--Scholes cho phép xác định giá
+quyền chọn mua và quyền chọn bán bằng các công thức dạng đóng
+\parencite{BlackScholes1973}:
+\begin{align}
+C_0 &= S_0\Phi(d_1)-Ke^{-rT}\Phi(d_2),\\
+P_0 &= Ke^{-rT}\Phi(-d_2)-S_0\Phi(-d_1),
+\end{align}
+trong đó
+\begin{equation}
+d_1=\frac{\ln(S_0/K)+(r+\sigma^2/2)T}{\sigma\sqrt{T}},
+\qquad
+d_2=d_1-\sigma\sqrt{T}.
+\end{equation}
+Từ đó, các độ nhạy phục vụ phòng ngừa rủi ro cũng có thể được tính trực tiếp;
+chẳng hạn, Delta của quyền chọn mua là $\Phi(d_1)$. Tuy nhiên, đối với các
+hợp đồng được xem xét trong nghiên cứu này, giá trị thanh toán còn phụ thuộc
+vào giá bình quân theo thời gian và, trong trường hợp quyền chọn
+\textit{worst-of}, vào tài sản có kết quả thấp nhất trong rổ. Vì vậy, nhìn
+chung không tồn tại những công thức đơn giản tương tự Black--Scholes. Ngay cả
+quyền chọn Asian đơn tài sản cũng thường phải được định giá bằng phương pháp
+xấp xỉ hoặc mô phỏng số \parencite{KemnaVorst1990}.
+
+Khó khăn thứ hai xuất phát từ sự phụ thuộc giữa các tài sản. Hiệu quả phòng
+ngừa rủi ro không chỉ phụ thuộc vào diễn biến riêng của từng tài sản mà còn
+phụ thuộc vào cách chúng cùng biến động. Mô hình chuyển động Brown hình học đa
+biến (\textsc{GBM}) giả định lợi suất log tuân theo phân phối Gaussian và mối
+tương quan giữa các tài sản được biểu diễn bằng một ma trận tương quan cố
+định. Mô hình Heston cho phép phương sai biến động ngẫu nhiên
+\parencite{Heston1993}, nhưng việc mở rộng và hiệu chỉnh mô hình cho nhiều tài
+sản vẫn cần thêm các giả định tham số để kiểm soát độ phức tạp
+\parencite{Dimitroff2011}.
+
+Khó khăn thứ ba đến từ chi phí giao dịch và việc tái cân bằng danh mục theo
+các thời điểm rời rạc. Trong mô hình Black--Scholes lý tưởng, danh mục phòng
+ngừa được giả định có thể điều chỉnh liên tục và không phát sinh chi phí.
+Trong thực tế, mỗi lần giao dịch đều làm phát sinh chi phí, nên chiến lược sao
+chép liên tục không thể được thực hiện chính xác như trong mô hình lý thuyết
+\parencite{BlackScholes1973,Leland1985}.
+
+Phòng ngừa rủi ro sâu (\textit{deep hedging}) cung cấp một hướng tiếp cận phù
+hợp cho ba khó khăn trên. Thay vì suy ra chiến lược phòng ngừa từ một công
+thức định giá đóng, phương pháp này tham số hóa chiến lược bằng mạng nơ-ron và
+huấn luyện trực tiếp trên các quỹ đạo mô phỏng nhằm tối thiểu hóa một hàm rủi
+ro của sai số phòng ngừa \parencite{Buehler2019}. Cách tiếp cận này cho phép
+kết hợp quyền chọn phụ thuộc đường đi, nhiều tài sản cơ sở, tái cân bằng rời
+rạc và chi phí giao dịch trong cùng một bài toán tối ưu.
+
+Tuy nhiên, ưu điểm của deep hedging không loại bỏ rủi ro mô hình. Mạng phòng
+ngừa học từ các quỹ đạo do một bộ sinh dữ liệu tạo ra; vì thế, phân phối của
+dữ liệu huấn luyện trở thành một thành phần quyết định của chiến lược. Một
+mạng nơ-ron được tối ưu tốt trên các quỹ đạo không đại diện cho thị trường vẫn
+có thể tạo ra chiến lược kém hiệu quả khi áp dụng trên dữ liệu thực. Do đó,
+việc lựa chọn bộ sinh quỹ đạo không chỉ là một bước kỹ thuật đầu vào mà là một
+quyết định có ý nghĩa kinh tế và quản trị rủi ro.
+
+Trong bối cảnh đó, mô hình chuỗi thời gian dựa trên cầu Schrödinger
+(\textit{Schrödinger Bridge Time Series}, viết tắt là \textsc{SBTS}) là một
+đối chứng dựa trên dữ liệu đáng chú ý. Thay vì áp đặt trước một dạng khuếch tán
+tham số, \textsc{SBTS} xây dựng quỹ đạo từ phân phối thực nghiệm và cấu trúc
+chuyển tiếp của dữ liệu lịch sử, trên nền tảng của bài toán cực tiểu hóa entropy
+tương đối của cầu Schrödinger \parencite{Hamdouche2023}. Trong trường hợp đa
+biến, thông tin trạng thái bao gồm đồng thời lợi suất của nhiều tài sản và độ
+trễ Markov được lựa chọn từ dữ liệu; bandwidth và bậc nhớ được hiệu chỉnh qua
+sai số dự báo ngoài mẫu \parencite{Alouadi2025}. Đặc điểm này tạo ra kỳ vọng
+rằng \textsc{SBTS} có thể bảo toàn tốt hơn các quan hệ phi tuyến và phụ thuộc
+đuôi trong dữ liệu tài chính đa biến.
+
+Từ các lập luận trên, câu hỏi trung tâm không phải là bộ sinh nào tái tạo một
+chỉ tiêu thống kê riêng lẻ tốt nhất, mà là: \emph{khác biệt giữa các bộ sinh có
+chuyển hóa thành khác biệt có ý nghĩa trong một quyết định kinh tế hạ nguồn hay
+không?} Nghiên cứu sử dụng bài toán phòng ngừa rủi ro sâu cho quyền chọn rainbow
+dưới chi phí giao dịch để trả lời câu hỏi này.
+
+\section{Vấn đề nghiên cứu và khoảng trống nghiên cứu}
+\label{sec:van-de-khoang-trong}
+
+\subsection{Vấn đề nghiên cứu}
+\label{subsec:van-de-nghien-cuu}
+
+Hiệu quả của một chiến lược deep hedging là kết quả đồng thời của ba thành
+phần: phân phối quỹ đạo huấn luyện, kiến trúc và quy trình tối ưu của mạng
+phòng ngừa, và chế độ thị trường dùng để đánh giá. Nếu thay đổi nhiều thành
+phần cùng lúc, chênh lệch kết quả không thể được quy cho bộ sinh dữ liệu. Vì
+vậy, nghiên cứu xây dựng một thiết kế so sánh có kiểm soát, trong đó
+\textsc{GBM}, Heston và \textsc{SBTS} chỉ khác nhau ở phân phối quỹ đạo đầu
+vào; các yếu tố còn lại gồm dữ liệu hiệu chỉnh, số quỹ đạo, kiến trúc mạng,
+chi phí giao dịch, hợp đồng, strike, seed và quy trình huấn luyện được giữ
+thống nhất.
+
+Vấn đề nghiên cứu được xác định là đánh giá liệu bộ sinh đa biến dựa trên cầu
+Schrödinger có tạo ra chiến lược phòng ngừa rủi ro tốt hơn các bộ sinh tham số
+hay không, khi cả ba được đặt trong cùng một khuôn khổ deep hedging và được
+đánh giá trên dữ liệu thị trường thực qua nhiều chế độ. Khái niệm ``tốt hơn''
+được xem xét trên ba phương diện:
+
+\begin{enumerate}
+    \item \textbf{Hiệu quả phòng ngừa:} mức phân tán và rủi ro đuôi của sai số
+    phòng ngừa sau khi đã tính chi phí giao dịch;
+    \item \textbf{Hiệu quả vốn:} mức tiền mặt ban đầu $V_0^{*}$ được học trong
+    giai đoạn tối ưu bình phương sai số;
+    \item \textbf{Tính ổn định theo chế độ:} khả năng duy trì thứ hạng khi điều
+    kiện thị trường chuyển từ giai đoạn đại diện sang phục hồi hoặc căng thẳng.
+\end{enumerate}
+
+\subsection{Khoảng trống nghiên cứu}
+\label{subsec:khoang-trong-nghien-cuu}
+
+Tổng quan tài liệu cho thấy ba khoảng trống có liên hệ trực tiếp với vấn đề
+trên.
+
+\paragraph{Khoảng trống thứ nhất: đánh giá hạ nguồn trong bối cảnh đa biến.}
+Các nghiên cứu về deep hedging đã chứng minh khả năng học chiến lược dưới chi
+phí giao dịch và các hàm rủi ro phi tuyến \parencite{Buehler2019}. Song song,
+nghiên cứu về \textsc{SBTS} cho thấy khả năng sinh chuỗi thời gian theo phân
+phối thực nghiệm \parencite{Hamdouche2023}, và hướng mở rộng đa biến tập trung
+vào độ trung thực phân phối \parencite{Alouadi2025}. Tuy nhiên, độ trung thực
+thống kê của một bộ sinh không tự động bảo đảm cải thiện trong một nhiệm vụ ra
+quyết định. Còn thiếu một đánh giá có kiểm soát về việc chất lượng phân phối đa
+biến của \textsc{SBTS} có chuyển thành mức giảm sai số phòng ngừa cho quyền
+chọn rainbow hay không.
+
+\paragraph{Khoảng trống thứ hai: ý nghĩa kinh tế của $V_0^{*}$ giữa các bộ
+sinh.}
+Trong giai đoạn huấn luyện bằng MSE, tham số tiền mặt ban đầu $V_0$ được tối ưu
+cùng chiến lược. Tại nghiệm tối ưu, $V_0^{*}$ có thể được diễn giải như một mức
+giá bàng quan bậc hai dưới phân phối của bộ sinh
+\parencite{FollmerSondermann1986,Schweizer2010}. Phần lớn nghiên cứu hiện có
+tập trung vào sai số phòng ngừa hoặc giá trị hàm mất mát; sự khác biệt có hệ
+thống của $V_0^{*}$ giữa các bộ sinh đa tài sản, cũng như hàm ý về vốn cần thiết
+để triển khai chiến lược, chưa được phân tích đầy đủ.
+
+\paragraph{Khoảng trống thứ ba: tính phụ thuộc chế độ của lựa chọn bộ sinh.}
+Một bộ sinh dựa trên dữ liệu có thể hoạt động tốt khi phân phối đánh giá gần
+với dữ liệu hiệu chỉnh nhưng suy giảm khi thị trường dịch chuyển mạnh. Ngược
+lại, mô hình tham số có thể mô tả chưa tốt các đặc trưng thực nghiệm trong điều
+kiện thông thường nhưng vẫn tạo ra quỹ đạo ngoài miền quan sát lịch sử. Vì
+vậy, một kết luận trung bình trên toàn bộ mẫu có thể che khuất sự đảo chiều
+thứ hạng giữa các chế độ. Còn thiếu một so sánh phân tầng theo chế độ, đồng
+thời sử dụng cả kiểm định từng cặp và tập hợp mô hình tin cậy để tách biệt ưu
+thế đại diện với tính ổn định dưới dịch chuyển phân phối.
+
+\section{Mục tiêu nghiên cứu}
+\label{sec:muc-tieu-nghien-cuu}
+
+\subsection{Mục tiêu tổng quát}
+
+Mục tiêu tổng quát của nghiên cứu là xây dựng và đánh giá một khung deep
+hedging có kiểm soát cho quyền chọn rainbow đa tài sản dưới chi phí giao dịch,
+qua đó so sánh tác động của ba bộ sinh quỹ đạo --- \textsc{GBM}, Heston và
+\textsc{SBTS} --- đối với hiệu quả phòng ngừa, mức vốn ban đầu và tính ổn định
+của kết quả qua các chế độ thị trường.
+
+\subsection{Mục tiêu cụ thể}
+
+Để đạt mục tiêu tổng quát, nghiên cứu thực hiện các mục tiêu cụ thể sau:
+
+\begin{enumerate}
+    \item Xây dựng một thiết kế thực nghiệm thống nhất cho ba bộ sinh, trong đó
+    kiến trúc mạng, hợp đồng, chi phí giao dịch, dữ liệu hiệu chỉnh và quy trình
+    huấn luyện được kiểm soát đồng nhất.
+
+    \item Đánh giá và so sánh sai số phòng ngừa của ba bộ sinh đối với quyền
+    chọn mua Asian trên rổ và quyền chọn bán Asian trên tài sản kém nhất, tại
+    ba mức strike và ba chế độ thị trường.
+
+    \item Phân tích tác động của quy trình huấn luyện hai giai đoạn từ MSE sang
+    $\mathrm{CVaR}_{0.95}$ đối với độ phân tán và rủi ro đuôi của sai số phòng
+    ngừa.
+
+    \item So sánh tham số tiền mặt tối ưu $V_0^{*}$ giữa các bộ sinh và diễn
+    giải chênh lệch dưới góc nhìn giá bàng quan bậc hai và hiệu quả sử dụng vốn.
+
+    \item Kiểm định ý nghĩa thống kê của các chênh lệch bằng kiểm định ghép cặp,
+    điều chỉnh Benjamini--Hochberg \parencite{BenjaminiHochberg1995} và thủ tục
+    Model Confidence Set \parencite{HansenLundeNason2011}.
+
+    \item Hình thành một nguyên tắc lựa chọn bộ sinh phụ thuộc chế độ, đồng thời
+    nhận diện giới hạn của phương pháp dựa trên dữ liệu khi phân phối thị trường
+    dịch chuyển mạnh so với giai đoạn hiệu chỉnh.
+\end{enumerate}
+
+\section{Câu hỏi và giả thuyết nghiên cứu}
+\label{sec:cau-hoi-gia-thuyet}
+
+\subsection{Câu hỏi nghiên cứu}
+
+Nghiên cứu tập trung trả lời ba câu hỏi:
+
+\begin{description}
+    \item[\textbf{RQ1 -- Hiệu quả phòng ngừa:}] Bộ sinh quỹ đạo đa biến dựa
+    trên dữ liệu có giúp giảm sai số phòng ngừa so với \textsc{GBM} và Heston
+    đối với quyền chọn rainbow dưới chi phí giao dịch hay không?
+
+    \item[\textbf{RQ2 -- Hiệu quả vốn:}] Mức tiền mặt ban đầu $V_0^{*}$ được
+    học bởi \mbox{deep hedging} có khác biệt một cách hệ thống giữa ba bộ sinh hay
+    không, và khác biệt đó có ý nghĩa gì đối với giá bàng quan và nhu cầu vốn?
+
+    \item[\textbf{RQ3 -- Phụ thuộc chế độ:}] Thứ hạng của các bộ sinh có ổn
+    định qua các chế độ COVID, hậu COVID và giai đoạn gần đây hay không; nếu
+    thứ hạng đảo chiều, kết quả đó cho thấy giới hạn cấu trúc nào của phương
+    pháp dựa trên dữ liệu?
+\end{description}
+
+\subsection{Giả thuyết nghiên cứu}
+
+Các câu hỏi trên được cụ thể hóa thành bốn giả thuyết có thể kiểm định:
+
+\begin{description}
+    \item[\textbf{H1 -- Hiệu quả trong chế độ đại diện:}] Trong giai đoạn
+    Recent 2023--2025, \textsc{SBTS} tạo ra độ lệch chuẩn sai số phòng ngừa
+    thấp hơn \textsc{GBM} và Heston tại sáu tổ hợp hợp đồng--strike, với khác
+    biệt có ý nghĩa sau điều chỉnh Benjamini--Hochberg ở mức $5\%$.
+
+    \item[\textbf{H2 -- Hiệu quả vốn của $V_0^{*}$:}] Trong giai đoạn huấn
+    luyện MSE, $V_0^{*}$ dưới \textsc{SBTS} thấp hơn mức tương ứng dưới hai mô
+    hình tham số tại sáu tổ hợp hợp đồng--strike.
+
+    \item[\textbf{H3 -- Lựa chọn đồng thời bằng MCS:}] Ở chế độ đại diện,
+    \textsc{SBTS} là phần tử duy nhất của Model Confidence Set tại mức ý nghĩa
+    $\alpha=0.10$ trong sáu tổ hợp hợp đồng--strike.
+
+    \item[\textbf{H4 -- Đảo chiều dưới căng thẳng:}] Trong giai đoạn COVID
+    2019--2020, thứ hạng hiệu quả phòng ngừa đảo chiều so với giai đoạn đại
+    diện, phản ánh giới hạn của bộ sinh phi tham số khi gặp dịch chuyển phân
+    phối sâu.
+\end{description}
+
+\section{Đối tượng và phạm vi nghiên cứu}
+\label{sec:doi-tuong-pham-vi}
+
+\subsection{Đối tượng nghiên cứu}
+
+Đối tượng nghiên cứu là tác động của phân phối quỹ đạo huấn luyện đến chiến
+lược deep hedging cho quyền chọn rainbow đa tài sản dưới chi phí giao dịch.
+Ba bộ sinh quỹ đạo được xem xét gồm \textsc{GBM} đa biến, mô hình Heston đa
+biến và \textsc{SBTS}. Đối tượng so sánh trực tiếp là phân phối của sai số
+phòng ngừa, tham số $V_0^{*}$ và thứ hạng thống kê của ba bộ sinh.
+
+\subsection{Phạm vi dữ liệu}
+
+Dữ liệu gồm giá đóng cửa đã điều chỉnh của ba cổ phiếu niêm yết tại Hoa Kỳ:
+Apple (AAPL), JPMorgan Chase (JPM) và ExxonMobil (XOM). Ba tài sản lần lượt
+đại diện cho các ngành công nghệ, tài chính và năng lượng, qua đó tạo ra một
+rổ có sự khác biệt về động lực tăng trưởng, mức biến động và phản ứng đối với
+chu kỳ kinh tế.
+
+Giai đoạn từ năm 2005 đến hết năm 2019 được sử dụng để hiệu chỉnh các bộ sinh.
+Kết quả được đánh giá theo ba nhóm chế độ: COVID 2019--2020, PostCOVID
+2021--2022 và Recent 2023--2025. Việc xây dựng các cửa sổ lịch sử, quy tắc gán
+chế độ và vai trò cụ thể của từng giai đoạn được trình bày chi tiết trong
+Chương 3.
+
+\subsection{Phạm vi hợp đồng và thực nghiệm}
+
+Nghiên cứu giới hạn ở hai quyền chọn Asian rainbow, ba tài sản cơ sở, thời hạn
+$N=252$ ngày giao dịch và ba mức strike chuẩn hóa
+$\kappa\in\{0.95,1.00,1.05\}$. Chi phí giao dịch tỷ lệ được cố định ở mức
+$c=0.001$ trên giá trị giao dịch. Thiết kế thực nghiệm gồm ba bộ sinh, hai hợp
+đồng, ba strike và mười seed, tương ứng với $180$ lượt huấn luyện độc lập. Mỗi
+lượt tạo một checkpoint MSE và một checkpoint CVaR, tổng cộng $360$
+checkpoint; các checkpoint được đánh giá trên ba chế độ để hình thành bảng
+kết quả cuối cùng.
+
+Nghiên cứu không xem xét quyền chọn kiểu Mỹ, quyền chọn Bermudan, điều khoản
+barrier hoặc autocall, mô hình biến động thô, hiệu chỉnh Heston riêng biệt trên
+bề mặt biến động hàm ý, cũng như rổ có số chiều lớn hơn ba. Các nội dung này
+được dành cho hướng nghiên cứu tiếp theo.
+
+\section{Phương pháp nghiên cứu tổng quát}
+\label{sec:phuong-phap-tong-quat}
+
+Nghiên cứu sử dụng phương pháp định lượng và thực nghiệm tính toán. Quy trình
+được tổ chức thành năm bước.
+
+\begin{enumerate}
+    \item \textbf{Chuẩn bị dữ liệu và hiệu chỉnh bộ sinh.} Lợi suất log đa
+    biến được xây dựng từ dữ liệu giá đã điều chỉnh. \textsc{GBM} được hiệu
+    chỉnh bằng mô-men mẫu; Heston sử dụng cấu hình đa biến giản lược; còn
+    \textsc{SBTS} xây dựng tập quỹ đạo tham chiếu từ các cửa sổ lịch sử và lựa
+    chọn bandwidth cùng bậc nhớ theo sai số dự báo.
+
+    \item \textbf{Sinh quỹ đạo huấn luyện.} Mỗi bộ sinh tạo ra tập quỹ đạo có
+    cùng kích thước, cùng thời hạn và cùng giá ban đầu chuẩn hóa. Phân phối quỹ
+    đạo là yếu tố thực nghiệm duy nhất thay đổi giữa ba nhánh.
+
+    \item \textbf{Huấn luyện chiến lược deep hedging.} Một mạng truyền thẳng
+    chung được sử dụng để ánh xạ trạng thái thị trường thành vị thế phòng ngừa.
+    Giai đoạn thứ nhất tối thiểu hóa MSE và học đồng thời $V_0$; giai đoạn thứ
+    hai cố định $V_0^{*}$ và tinh chỉnh chiến lược theo
+    $\mathrm{CVaR}_{0.95}$ dựa trên biểu diễn của
+    \textcite{Rockafellar2000}.
+
+    \item \textbf{Đánh giá ngoài mẫu theo chế độ.} Mỗi checkpoint được áp dụng
+    trên các quỹ đạo lịch sử của ba chế độ. Các chỉ tiêu chính gồm độ lệch
+    chuẩn của sai số phòng ngừa, $\mathrm{CVaR}_{0.95}$, chi phí giao dịch,
+    payoff, P\&L và $V_0^{*}$.
+
+    \item \textbf{Suy luận thống kê.} Chênh lệch giữa các bộ sinh được đánh giá
+    bằng kiểm định $t$ ghép cặp theo seed, điều chỉnh Benjamini--Hochberg cho
+    nhiều phép thử và Model Confidence Set cho so sánh đồng thời ba mô hình.
+\end{enumerate}
+
+Cách tổ chức này cho phép phân biệt hai lớp đánh giá. Lớp thứ nhất kiểm tra
+khả năng tái tạo đặc trưng phân phối của từng bộ sinh. Lớp thứ hai, quan trọng
+hơn đối với mục tiêu nghiên cứu, kiểm tra giá trị của bộ sinh trong một nhiệm
+vụ ra quyết định hạ nguồn. Kết luận về hiệu quả không được rút ra chỉ từ mức độ
+giống dữ liệu lịch sử, mà từ sai số của chiến lược phòng ngừa trên các giai
+đoạn đánh giá thực tế.
+
+\section{Đóng góp của nghiên cứu}
+\label{sec:dong-gop-nghien-cuu}
+
+Nghiên cứu có ba đóng góp chính.
+
+\paragraph{Thứ nhất, đóng góp về thiết kế thực nghiệm.}
+Nghiên cứu xây dựng một khung so sánh ba bộ sinh đa biến trong cùng bài toán
+deep hedging cho quyền chọn rainbow dưới chi phí giao dịch. Việc giữ thống
+nhất kiến trúc mạng, hợp đồng, seed, thời hạn và quy trình tối ưu giúp tách ảnh
+hưởng của phân phối quỹ đạo khỏi các yếu tố thực nghiệm khác.
+
+\paragraph{Thứ hai, đóng góp về diễn giải kinh tế.}
+Bên cạnh sai số phòng ngừa, nghiên cứu phân tích $V_0^{*}$ như một đại lượng có
+ý nghĩa giá bàng quan bậc hai. Cách tiếp cận này liên kết kết quả học máy với
+một câu hỏi kinh tế cụ thể: cùng một hợp đồng và cùng chi phí giao dịch, bộ
+sinh nào dẫn đến nhu cầu vốn ban đầu thấp hơn trong khuôn khổ rủi ro đã chọn.
+
+\paragraph{Thứ ba, đóng góp về lựa chọn mô hình theo chế độ.}
+Nghiên cứu không giả định một bộ sinh tối ưu trong mọi điều kiện. Kết quả được
+phân tầng theo ba chế độ và được tổng hợp bằng cả kiểm định từng cặp lẫn Model
+Confidence Set. Qua đó, nghiên cứu đề xuất cách diễn giải phụ thuộc chế độ:
+bộ sinh dựa trên dữ liệu có thể được ưu tiên trong điều kiện thị trường đại
+diện, trong khi kết quả ở giai đoạn căng thẳng cần được xem như một chỉ báo về
+rủi ro dịch chuyển phân phối và giới hạn ngoại suy.
+
+\section{Kết cấu của luận văn}
+\label{sec:ket-cau-luan-van}
+
+Ngoài phần tóm tắt, danh mục từ viết tắt, danh mục bảng, danh mục hình và tài
+liệu tham khảo, luận văn gồm năm chương.
+
+\begin{description}
+    \item[\textbf{Chương 1 -- Xác định vấn đề nghiên cứu}] trình bày bối cảnh,
+    vấn đề và khoảng trống nghiên cứu; xác định mục tiêu, câu hỏi, giả thuyết,
+    phạm vi, phương pháp tổng quát và đóng góp của nghiên cứu.
+
+    \item[\textbf{Chương 2 -- Lược khảo và cơ sở lý thuyết}] tổng hợp nghiên
+    cứu về quyền chọn rainbow, deep hedging, thước đo rủi ro, các bộ sinh chuỗi
+    thời gian và cầu Schrödinger. Phần lý thuyết dẫn từ bài toán entropy đến
+    phương trình Hamilton--Jacobi--Bellman, phép biến đổi Cole--Hopf và hệ
+    Schrödinger; không sử dụng Doob $h$-transform như một tuyến chứng minh riêng.
+
+    \item[\textbf{Chương 3 -- Phương pháp nghiên cứu}] mô tả dữ liệu, quy
+    trình hiệu chỉnh ba bộ sinh, thuật toán sinh quỹ đạo, kiến trúc deep
+    hedging, hai giai đoạn MSE--CVaR, thiết kế thực nghiệm và phương pháp kiểm
+    định thống kê.
+
+    \item[\textbf{Chương 4 -- Phân tích kết quả}] đối chiếu chất lượng phân
+    phối, trình bày hiệu quả phòng ngừa theo từng chế độ, phân tích tác động
+    curriculum, so sánh $V_0^{*}$ và tổng hợp lựa chọn mô hình bằng Model
+    Confidence Set.
+
+    \item[\textbf{Chương 5 -- Kết luận}] trả lời các câu hỏi nghiên cứu, đánh
+    giá giả thuyết, tổng hợp đóng góp, trình bày hàm ý thực tiễn, hạn chế và
+    hướng nghiên cứu tiếp theo.
+\end{description}
+
+\section{Tóm tắt chương}
+
+Chương 1 đã xác định vấn đề nghiên cứu xuất phát từ sự phụ thuộc của deep
+hedging vào phân phối quỹ đạo huấn luyện. Đối với quyền chọn rainbow phụ thuộc
+đường đi và chịu chi phí giao dịch, việc lựa chọn bộ sinh đa biến có thể ảnh
+hưởng đồng thời đến sai số phòng ngừa, mức vốn ban đầu và độ ổn định của chiến
+lược qua các chế độ thị trường. Trên cơ sở ba khoảng trống về đánh giá hạ
+nguồn, ý nghĩa kinh tế của $V_0^{*}$ và tính phụ thuộc chế độ, chương đã xây
+dựng ba câu hỏi nghiên cứu, bốn giả thuyết và phạm vi thực nghiệm để định hướng
+các chương tiếp theo. Chương 2 sẽ lược khảo các nền tảng lý thuyết và nghiên
+cứu liên quan, đồng thời xây dựng cầu nối toán học từ bài toán entropy của cầu
+Schrödinger đến mô hình chuỗi thời gian được sử dụng trong nghiên cứu.
