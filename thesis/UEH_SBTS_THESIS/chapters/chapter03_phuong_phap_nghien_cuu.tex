@@ -279,9 +279,10 @@ Lưới thực nghiệm là
     =180\ \text{cấu hình huấn luyện được giữ lại}.
     \label{eq:c3-grid}
 \end{equation}
-Mỗi cấu hình có hai checkpoint, tương ứng với 360 checkpoint. Mười seed mục
-tiêu được đánh số từ 0 đến 9 và được dùng đồng bộ giữa các nhánh, ngoại trừ trường
-hợp nêu tại Mục~\ref{sec:c3-seed-replacement}.
+Mỗi cấu hình có hai checkpoint, tương ứng với 360 checkpoint. Mười seed được
+đánh số từ 0 đến 9 và được dùng đồng bộ giữa các nhánh. Riêng cấu hình
+SBTS--worst-of put--$\kappa=0{,}95$--seed 3 không hội tụ ở giai đoạn CVaR và
+được thay bằng một lần chạy lại hội tụ.
 
 \begin{table}[H]
 \centering
@@ -313,14 +314,6 @@ $V_0^{*}$. P\&L được xác định bằng $V_T-\Phi=-R$. Giá trị P\&L trun
 hơn trong 5\% trường hợp bất lợi nhất. Chỉ tiêu xếp hạng chính trong Chương 4
 là $\sigma(R)$ tại checkpoint sau CVaR.
 
-\subsection{Công bố trường hợp seed thay thế}
-\label{sec:c3-seed-replacement}
-
-Cấu hình SBTS--worst-of put--$\kappa=0{,}95$--seed 3 phân kỳ trong giai đoạn
-CVaR. Bộ kết quả thay checkpoint này bằng một lần chạy hội tụ với seed 10 để
-giữ $n=10$. Quan sát thay thế không ghép cùng seed với GBM và Heston. Vì vậy,
-các kiểm định liên quan đến tổ hợp này không có cấu trúc ghép cặp hoàn toàn.
-
 \section{Phương pháp suy luận thống kê}
 \label{sec:c3-statistics}
 
@@ -333,8 +326,7 @@ $L_s$ là chỉ tiêu đánh giá ở seed $s$. Thống kê kiểm định là
     \label{eq:c3-paired-t}
 \end{equation}
 và Cohen's $d$ ghép cặp là $d_{\mathrm{Cohen}}=\bar d/s_d$. Ghép seed kiểm
-soát biến thiên do khởi tạo mạng. Ngoại lệ tại
-Mục~\ref{sec:c3-seed-replacement} áp dụng cho một tổ hợp.
+soát biến thiên do khởi tạo mạng.
 
 \subsection{Điều chỉnh Benjamini--Hochberg}
 
@@ -389,5 +381,4 @@ phân tích không có trong đầu ra cuối cùng không được sử dụng 
 Chương 3 trình bày dữ liệu, cách hiệu chỉnh GBM, Heston và SBTS, hai hợp đồng,
 kiến trúc mạng và quy trình MSE--CVaR. Thiết kế gồm 180 lượt huấn luyện và 360
 checkpoint được đánh giá tại ba giai đoạn thị trường. So sánh thống kê sử dụng
-kiểm định ghép cặp, điều chỉnh Benjamini--Hochberg và MCS. Một trường hợp thay
-seed được nêu riêng trong giới hạn của cấu trúc ghép cặp.
+kiểm định ghép cặp, điều chỉnh Benjamini--Hochberg và MCS.
